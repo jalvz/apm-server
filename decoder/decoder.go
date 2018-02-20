@@ -3,16 +3,18 @@ package decoder
 import (
 	"compress/gzip"
 	"compress/zlib"
-	"encoding/json"
 	"fmt"
 	"net/http"
 
 	"io/ioutil"
 	"strings"
 
+	"github.com/a8m/djson"
+
 	"github.com/pkg/errors"
 
 	"github.com/elastic/apm-server/utility"
+	"bytes"
 )
 
 type Decoder func(req *http.Request) (map[string]interface{}, error)
@@ -44,12 +46,19 @@ func DecodeLimitJSONData(maxSize int64) Decoder {
 				return nil, err
 			}
 		}
-		v := make(map[string]interface{})
-		if err := json.NewDecoder(http.MaxBytesReader(nil, reader, maxSize)).Decode(&v); err != nil {
-			// If we run out of memory, for example
+
+
+		var buf bytes.Buffer
+		if _, err := buf.ReadFrom(http.MaxBytesReader(nil, reader, maxSize)); err != nil {
 			return nil, errors.Wrap(err, "data read error")
 		}
-		return v, nil
+
+		dec := djson.NewDecoder(buf.Bytes())
+		if v, err := dec.DecodeObject();  err != nil {
+			return nil, errors.Wrap(err, "data decoding error")
+		} else {
+			return v, nil
+		}
 	}
 }
 
