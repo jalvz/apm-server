@@ -3,7 +3,6 @@ package decoder
 import (
 	"compress/gzip"
 	"compress/zlib"
-	"encoding/json"
 	"fmt"
 	"net/http"
 
@@ -13,12 +12,14 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/elastic/apm-server/utility"
+	"github.com/elastic/apm-server/models"
+	"bytes"
 )
 
-type Decoder func(req *http.Request) (map[string]interface{}, error)
+type Decoder func(req *http.Request) (*models.TransactionsPayload, error)
 
 func DecodeLimitJSONData(maxSize int64) Decoder {
-	return func(req *http.Request) (map[string]interface{}, error) {
+	return func(req *http.Request) (*models.TransactionsPayload, error) {
 		contentType := req.Header.Get("Content-Type")
 		if !strings.Contains(contentType, "application/json") {
 			return nil, fmt.Errorf("invalid content type: %s", req.Header.Get("Content-Type"))
@@ -44,14 +45,27 @@ func DecodeLimitJSONData(maxSize int64) Decoder {
 				return nil, err
 			}
 		}
-		v := make(map[string]interface{})
-		if err := json.NewDecoder(http.MaxBytesReader(nil, reader, maxSize)).Decode(&v); err != nil {
-			// If we run out of memory, for example
+
+		buf := new(bytes.Buffer)
+
+		if _, err := buf.ReadFrom(reader); err != nil {
 			return nil, errors.Wrap(err, "data read error")
 		}
-		return v, nil
+		by := buf.Bytes()
+		fmt.Println(string(by))
+		return DecodeTransactionsPayload(by)
 	}
 }
+
+
+func DecodeTransactionsPayload(bytes []byte) (*models.TransactionsPayload, error) {
+	payload := &models.TransactionsPayload{}
+	if err := payload.UnmarshalJSON(bytes); err != nil {
+		return nil, errors.Wrap(err, "data read error")
+	}
+	return payload, nil
+}
+
 
 func DecodeSourcemapFormData(req *http.Request) (map[string]interface{}, error) {
 	contentType := req.Header.Get("Content-Type")
@@ -79,31 +93,31 @@ func DecodeSourcemapFormData(req *http.Request) (map[string]interface{}, error) 
 
 	return payload, nil
 }
-
-func DecodeUserData(decoder Decoder) Decoder {
-	augment := func(req *http.Request) map[string]interface{} {
-		return map[string]interface{}{
-			"ip":         utility.ExtractIP(req),
-			"user_agent": req.Header.Get("User-Agent"),
-		}
-	}
-	return augmentData(decoder, "user", augment)
-}
-
-func DecodeSystemData(decoder Decoder) Decoder {
-	augment := func(req *http.Request) map[string]interface{} {
-		return map[string]interface{}{"ip": utility.ExtractIP(req)}
-	}
-	return augmentData(decoder, "system", augment)
-}
-
-func augmentData(decoder Decoder, key string, augment func(req *http.Request) map[string]interface{}) Decoder {
-	return func(req *http.Request) (map[string]interface{}, error) {
-		v, err := decoder(req)
-		if err != nil {
-			return v, err
-		}
-		utility.InsertInMap(v, key, augment(req))
-		return v, nil
-	}
-}
+//
+//func DecodeUserData(decoder Decoder) Decoder {
+//	augment := func(req *http.Request) map[string]interface{} {
+//		return map[string]interface{}{
+//			"ip":         utility.ExtractIP(req),
+//			"user_agent": req.Header.Get("User-Agent"),
+//		}
+//	}
+//	return augmentData(decoder, "user", augment)
+//}
+//
+//func DecodeSystemData(decoder Decoder) Decoder {
+//	augment := func(req *http.Request) map[string]interface{} {
+//		return map[string]interface{}{"ip": utility.ExtractIP(req)}
+//	}
+//	return augmentData(decoder, "system", augment)
+//}
+//
+//func augmentData(decoder Decoder, key string, augment func(req *http.Request) map[string]interface{}) Decoder {
+//	return func(req *http.Request) (map[string]interface{}, error) {
+//		v, err := decoder(req)
+//		if err != nil {
+//			return v, err
+//		}
+//		utility.InsertInMap(v, key, augment(req))
+//		return v, nil
+//	}
+//}

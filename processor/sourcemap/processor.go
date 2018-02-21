@@ -13,6 +13,7 @@ import (
 	pr "github.com/elastic/apm-server/processor"
 	"github.com/elastic/beats/libbeat/beat"
 	"github.com/elastic/beats/libbeat/monitoring"
+	"github.com/elastic/apm-server/models"
 )
 
 const (

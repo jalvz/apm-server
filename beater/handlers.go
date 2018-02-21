@@ -19,7 +19,7 @@ import (
 	"github.com/elastic/apm-server/processor"
 	perr "github.com/elastic/apm-server/processor/error"
 	"github.com/elastic/apm-server/processor/healthcheck"
-	"github.com/elastic/apm-server/processor/sourcemap"
+	//"github.com/elastic/apm-server/processor/sourcemap"
 	"github.com/elastic/apm-server/processor/transaction"
 	"github.com/elastic/apm-server/utility"
 	"github.com/elastic/beats/libbeat/logp"
@@ -67,7 +67,7 @@ var (
 		BackendErrorsURL:        {backendHandler, perr.NewProcessor},
 		FrontendErrorsURL:       {frontendHandler, perr.NewProcessor},
 		HealthCheckURL:          {healthCheckHandler, healthcheck.NewProcessor},
-		SourcemapsURL:           {sourcemapHandler, sourcemap.NewProcessor},
+		//SourcemapsURL:           {sourcemapHandler, sourcemap.NewProcessor},
 	}
 )
 
@@ -91,7 +91,7 @@ func backendHandler(pf ProcessorFactory, config *Config, report reporter) http.H
 	return logHandler(
 		authHandler(config.SecretToken,
 			processRequestHandler(pf, nil, report,
-				decoder.DecodeSystemData(decoder.DecodeLimitJSONData(config.MaxUnzippedSize)))))
+				decoder.DecodeLimitJSONData(config.MaxUnzippedSize))))
 }
 
 func frontendHandler(pf ProcessorFactory, config *Config, report reporter) http.Handler {
@@ -109,19 +109,19 @@ func frontendHandler(pf ProcessorFactory, config *Config, report reporter) http.
 			ipRateLimitHandler(config.Frontend.RateLimit,
 				corsHandler(config.Frontend.AllowOrigins,
 					processRequestHandler(pf, &prConfig, report,
-						decoder.DecodeUserData(decoder.DecodeLimitJSONData(config.MaxUnzippedSize)))))))
+						decoder.DecodeLimitJSONData(config.MaxUnzippedSize))))))
 }
-
-func sourcemapHandler(pf ProcessorFactory, config *Config, report reporter) http.Handler {
-	smapper, err := config.Frontend.memoizedSmapMapper()
-	if err != nil {
-		logp.NewLogger("handler").Error(err.Error())
-	}
-	return logHandler(
-		killSwitchHandler(config.Frontend.isEnabled(),
-			authHandler(config.SecretToken,
-				processRequestHandler(pf, &processor.Config{SmapMapper: smapper}, report, decoder.DecodeSourcemapFormData))))
-}
+//
+//func sourcemapHandler(pf ProcessorFactory, config *Config, report reporter) http.Handler {
+//	smapper, err := config.Frontend.memoizedSmapMapper()
+//	if err != nil {
+//		logp.NewLogger("handler").Error(err.Error())
+//	}
+//	return logHandler(
+//		killSwitchHandler(config.Frontend.isEnabled(),
+//			authHandler(config.SecretToken,
+//				processRequestHandler(pf, &processor.Config{SmapMapper: smapper}, report, decoder.DecodeSourcemapFormData))))
+//}
 
 func healthCheckHandler(_ ProcessorFactory, _ *Config, _ reporter) http.Handler {
 	return logHandler(
@@ -290,11 +290,12 @@ func processRequest(r *http.Request, pf ProcessorFactory, prConfig *processor.Co
 		return http.StatusBadRequest, errors.Wrap(err, "while decoding")
 	}
 
-	if err = processor.Validate(data); err != nil {
+	if err = data.Validate(nil); err != nil {
+	//if err = processor.Validate(data); err != nil {
 		return http.StatusBadRequest, err
 	}
 
-	list, err := processor.Transform(data)
+	list, err := processor.Transform(*data)
 	if err != nil {
 		return http.StatusBadRequest, err
 	}
