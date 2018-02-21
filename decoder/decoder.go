@@ -52,7 +52,7 @@ func DecodeLimitJSONData(maxSize int64) Decoder {
 			return nil, errors.Wrap(err, "data read error")
 		}
 		by := buf.Bytes()
-		fmt.Println(string(by))
+		//fmt.Println(string(by))
 		return DecodeTransactionsPayload(by)
 	}
 }
