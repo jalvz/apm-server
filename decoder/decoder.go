@@ -59,11 +59,11 @@ func DecodeLimitJSONData(maxSize int64) Decoder {
 
 
 func DecodeTransactionsPayload(bytes []byte) (*models.TransactionsPayload, error) {
-	payload := &models.TransactionsPayload{}
+	payload := models.TransactionsPayload{}
 	if err := payload.UnmarshalJSON(bytes); err != nil {
 		return nil, errors.Wrap(err, "data read error")
 	}
-	return payload, nil
+	return &payload, nil
 }
 
 
