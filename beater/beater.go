@@ -48,18 +48,18 @@ func New(b *beat.Beat, ucfg *common.Config) (beat.Beater, error) {
 func (bt *beater) Run(b *beat.Beat) error {
 	var err error
 
-	pub, err := newPublisher(b.Publisher, bt.config.ConcurrentRequests)
-	if err != nil {
-		return err
-	}
-	defer pub.Stop()
+	//pub, err := newPublisher(b.Publisher, bt.config.ConcurrentRequests)
+	//if err != nil {
+	//	return err
+	//}
+	//defer pub.Stop()
 
 	lis, err := net.Listen("tcp", bt.config.Host)
 	if err != nil {
 		logp.Err("failed to listen: %s", err)
 		return err
 	}
-	go notifyListening(bt.config, pub.Send)
+	//go notifyListening(bt.config, nil)
 
 	bt.mutex.Lock()
 	if bt.stopped {
@@ -67,7 +67,7 @@ func (bt *beater) Run(b *beat.Beat) error {
 		return nil
 	}
 
-	bt.server = newServer(bt.config, pub.Send)
+	bt.server = newServer(bt.config, nil)
 	bt.mutex.Unlock()
 
 	err = run(bt.server, lis, bt.config)
