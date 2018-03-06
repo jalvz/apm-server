@@ -24,8 +24,6 @@ import (
 	"github.com/elastic/apm-server/utility"
 	"github.com/elastic/beats/libbeat/logp"
 	"github.com/elastic/beats/libbeat/monitoring"
-	"github.com/elastic/beats/libbeat/beat"
-	"time"
 )
 
 const (
@@ -296,12 +294,8 @@ func processRequest(r *http.Request, pf ProcessorFactory, prConfig *processor.Co
 		return http.StatusBadRequest, err
 	}
 
-	list, err := processor.Transform(data)
+	_, err = processor.Transform(data)
 	if err != nil {
-		return http.StatusBadRequest, err
-	}
-
-	if err = saveToES(list); err != nil {
 		return http.StatusServiceUnavailable, err
 	}
 
@@ -351,12 +345,4 @@ func sendJSON(w http.ResponseWriter, msg map[string]interface{}) {
 
 func sendPlain(w http.ResponseWriter, msg string) {
 	w.Write([]byte(msg))
-}
-
-func saveToES(d []beat.Event) error {
-	time.Sleep(time.Millisecond * 70) // avg time of publishEvents with heavy profile 1 minute
-	if len(d) > 0 {
-		return nil
-	}
-	return nil
 }

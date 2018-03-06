@@ -48,18 +48,19 @@ func New(b *beat.Beat, ucfg *common.Config) (beat.Beater, error) {
 func (bt *beater) Run(b *beat.Beat) error {
 	var err error
 
-	//pub, err := newPublisher(b.Publisher, bt.config.ConcurrentRequests)
-	//if err != nil {
-	//	return err
-	//}
-	//defer pub.Stop()
+	// keep this only for the onboarding doc
+	pub, err := newPublisher(b.Publisher, bt.config.ConcurrentRequests)
+	if err != nil {
+		return err
+	}
+	defer pub.Stop()
 
 	lis, err := net.Listen("tcp", bt.config.Host)
 	if err != nil {
 		logp.Err("failed to listen: %s", err)
 		return err
 	}
-	//go notifyListening(bt.config, nil)
+	go notifyListening(bt.config, pub.Send)
 
 	bt.mutex.Lock()
 	if bt.stopped {

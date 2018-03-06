@@ -11,6 +11,9 @@ import (
 	m "github.com/elastic/apm-server/model"
 	pr "github.com/elastic/apm-server/processor"
 	"github.com/elastic/beats/libbeat/common"
+	"github.com/elastic/apm-server/tests/loader"
+
+	"encoding/json"
 )
 
 func TestPayloadTransform(t *testing.T) {
@@ -117,17 +120,17 @@ func TestPayloadTransform(t *testing.T) {
 	}
 
 	tests := []struct {
-		Payload payload
+		Payload Payload
 		Output  []common.MapStr
 		Msg     string
 	}{
 		{
-			Payload: payload{Service: service, Events: []Event{}},
+			Payload: Payload{Service: service, Events: []Event{}},
 			Output:  nil,
 			Msg:     "Payload with empty Event Array",
 		},
 		{
-			Payload: payload{
+			Payload: Payload{
 				Service: service,
 				Events:  []Event{txValid, txValidWithSpan},
 			},
@@ -135,7 +138,7 @@ func TestPayloadTransform(t *testing.T) {
 			Msg:    "Payload with multiple Events",
 		},
 		{
-			Payload: payload{
+			Payload: Payload{
 				Service: service,
 				System:  system,
 				Events:  []Event{txValid},
@@ -144,7 +147,7 @@ func TestPayloadTransform(t *testing.T) {
 			Msg:    "Payload with System and Event",
 		},
 		{
-			Payload: payload{
+			Payload: Payload{
 				Service: service,
 				System:  system,
 				Events:  []Event{txWithContext},
@@ -162,4 +165,28 @@ func TestPayloadTransform(t *testing.T) {
 		}
 
 	}
+}
+
+func TestPayload_MarshalJSON(t *testing.T) {
+	byt, _ := loader.LoadValidDataAsBytes("transaction")
+	var pa Payload
+
+	json.Unmarshal(byt, &pa)
+	fmt.Println(pa)
+	for _, e := range pa.Events {
+
+		byt2, err := json.Marshal(e)
+
+		assert.Nil(t, err)
+
+		var m map[string]interface{}
+
+		json.Unmarshal(byt2, &m)
+
+		fmt.Println(m)
+		fmt.Println(len(byt2))
+	}
+
+
+
 }

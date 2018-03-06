@@ -15,7 +15,7 @@ type Event struct {
 	Duration  float64
 	Timestamp time.Time
 	Context   common.MapStr
-	Spans     []*Span
+	Spans     []*Span  `json:"-"`
 	Marks     common.MapStr
 	Sampled   *bool
 	SpanCount SpanCount `mapstructure:"span_count"`
