@@ -13,7 +13,6 @@ import (
 	"github.com/elastic/beats/libbeat/beat"
 	"github.com/elastic/beats/libbeat/monitoring"
 	"fmt"
-	"github.com/olivere/elastic"
 	"github.com/elastic/apm-server/client"
 	"encoding/json"
 )
@@ -32,14 +31,11 @@ const (
 
 var schema = pr.CreateSchema(errorSchema, processorName)
 
-var ErrorBuffer chan payload
+var errorBuffer chan payload
 
-const BufferSize = 50
-
-func init() {
-	ErrorBuffer = make(chan payload, BufferSize)
-	bulkProcessor := client.BulkProcessor(processorName, 1)
-	go consume(bulkProcessor)
+func Start(bufferSize int) {
+	errorBuffer = make(chan payload, bufferSize)
+	go consume()
 }
 
 func NewProcessor(config *pr.Config) pr.Processor {
@@ -63,7 +59,7 @@ func (p *processor) Validate(raw map[string]interface{}) error {
 func (p *processor) Transform(raw interface{}) ([]beat.Event, error) {
 	pa := decode(raw.(map[string]interface{}))
 	select {
-	case ErrorBuffer <- pa:
+	case errorBuffer <- pa:
 		return nil, nil
 	case <-time.After(time.Second):
 		fmt.Println("BLOCKED")
@@ -76,8 +72,9 @@ func (p *processor) Name() string {
 	return processorName
 }
 
-func consume(bulk *elastic.BulkProcessor) {
-	for pa := range ErrorBuffer {
+func consume() {
+	bulk := client.BulkProcessor(processorName, 1)
+	for pa := range errorBuffer {
 		var bars [][]byte
 		fmt.Println("CONSUME!")
 		for _, e := range pa.Events {

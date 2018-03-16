@@ -11,6 +11,11 @@ import (
 	"github.com/elastic/beats/libbeat/beat"
 	"github.com/elastic/beats/libbeat/common"
 	"github.com/elastic/beats/libbeat/logp"
+	"github.com/elastic/apm-server/client"
+	"github.com/elastic/beats/libbeat/outputs/elasticsearch"
+	"github.com/elastic/beats/libbeat/outputs"
+	er "github.com/elastic/apm-server/processor/error"
+	"github.com/elastic/apm-server/processor/transaction"
 )
 
 type beater struct {
@@ -26,6 +31,24 @@ func New(b *beat.Beat, ucfg *common.Config) (beat.Beater, error) {
 	if err := ucfg.Unpack(beaterConfig); err != nil {
 		return nil, fmt.Errorf("Error reading config file: %v", err)
 	}
+
+	// get minimal es config
+	esCfg := b.Config.Output.Config()
+	hosts, err := outputs.ReadHostList(esCfg)
+	if err != nil {
+		panic(err)
+	}
+	es := elasticsearch.DefaultConfig
+	if err := esCfg.Unpack(&es); err != nil {
+		panic(err)
+	}
+
+	// must init before start...
+	client.InitClient(hosts[0], es.Username, es.Password)
+	transaction.Start(beaterConfig.TransactionBuffer)
+	er.Start(beaterConfig.ErrorBuffer)
+
+
 	if beaterConfig.Frontend.isEnabled() {
 		if _, err := regexp.Compile(beaterConfig.Frontend.LibraryPattern); err != nil {
 			return nil, errors.New(fmt.Sprintf("Invalid regex for `library_pattern`: %v", err.Error()))
@@ -47,7 +70,6 @@ func New(b *beat.Beat, ucfg *common.Config) (beat.Beater, error) {
 
 func (bt *beater) Run(b *beat.Beat) error {
 	var err error
-
 	// keep this only for the onboarding doc
 	pub, err := newPublisher(b.Publisher, bt.config.ConcurrentRequests)
 	if err != nil {

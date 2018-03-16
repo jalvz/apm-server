@@ -61,7 +61,7 @@ func makeES(
 		cfg.SetString("index", -1, pattern)
 	}
 
-	config := defaultConfig
+	config := DefaultConfig
 	if err := cfg.Unpack(&config); err != nil {
 		return outputs.Fail(err)
 	}
@@ -183,7 +183,7 @@ func NewElasticsearchClients(cfg *common.Config) ([]Client, error) {
 		return nil, err
 	}
 
-	config := defaultConfig
+	config := DefaultConfig
 	if err = cfg.Unpack(&config); err != nil {
 		return nil, err
 	}

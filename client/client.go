@@ -15,12 +15,14 @@ var once sync.Once
 
 var backPressure sync.WaitGroup
 
-func getClient() *elastic.Client {
+func InitClient(url string, username string, password string) {
 	// needs Configs
 	once.Do(func() {
 		var err error
+		fmt.Println("init client ", url, username)
 		c, err = elastic.NewClient(
-			elastic.SetURL("http://localhost:9200"),
+			elastic.SetURL(url),
+			elastic.SetBasicAuth(username, password),
 			elastic.SetSniff(false),
 			elastic.SetRetrier(NewRetrier()),
 			elastic.SetHealthcheckInterval(time.Second * 2),
@@ -32,17 +34,17 @@ func getClient() *elastic.Client {
 			panic(err)
 		}
 	})
-	return c
 }
 
 func BulkProcessor(processor string, workers int) *elastic.BulkProcessor {
-	bulk := elastic.NewBulkProcessorService(getClient()).
+
+	bulk := elastic.NewBulkProcessorService(c).
 		Name(strings.Join([]string{processor, "bulk", "processor"}, "-")).
 		//Stats(true).
 		//Backoff(elastic.NewConstantBackoff(time.Minute * 1)).
 		Workers(workers).
 		//BulkActions(1000).BulkSize(1024 * 1024)  // flush every 1000 events or 1 mb accumulated
-		FlushInterval(time.Second)
+		FlushInterval(time.Second / 5)
 
 	bulkProcessor, err := bulk.Do(context.Background())
 	if err != nil {
@@ -72,11 +74,10 @@ func (r *Retrier) Retry(ctx context.Context, retry int, req *http.Request, resp 
 
 func SaveToES(data [][]byte, bulk *elastic.BulkProcessor) {
 	// needs Configs
-	for _, e := range data{
+	for _, e := range data {
 		r := elastic.NewBulkIndexRequest().
-			Index("apm-7.0.0-alpha1-2018.03.06").
-			Type("doc").
-			Doc(e)
+			Index("apm-7.0.0-alpha1-" + time.Now().Format("2006.01.02")).
+			Type("doc").Doc(e)
 		bulk.Add(r)
 	}
 	backPressure.Wait() // blocks until Done() has been called has many times as Add(1)

@@ -14,7 +14,6 @@ import (
 	"fmt"
 	"github.com/elastic/apm-server/model"
 
-	"github.com/olivere/elastic"
 
 	"github.com/elastic/apm-server/client"
 	"runtime"
@@ -37,14 +36,12 @@ const (
 
 var schema = pr.CreateSchema(transactionSchema, processorName)
 
-var TransactionBuffer chan payload
+var transactionBuffer chan payload
 
-const BufferSize = 1000
-
-func init() {
-	TransactionBuffer = make(chan payload, BufferSize)
-	bulkProcessor := client.BulkProcessor(processorName, runtime.NumCPU())
-	go consume(bulkProcessor)
+func Start(bufferSize int) {
+	fmt.Println("creating transaction queue with size ", bufferSize)
+	transactionBuffer = make(chan payload, bufferSize)
+	go consume()
 }
 
 func NewProcessor(config *pr.Config) pr.Processor {
@@ -68,7 +65,7 @@ func (p *processor) Validate(raw map[string]interface{}) error {
 func (p *processor) Transform(raw interface{}) ([]beat.Event, error) {
 	pa := decode(raw.(map[string]interface{}))
 	select {
-	case TransactionBuffer <- pa:
+	case transactionBuffer <- pa:
 		fmt.Println("PUSHED!")
 		return nil, nil
 	case <- time.After(time.Second):
@@ -81,8 +78,9 @@ func (p *processor) Name() string {
 	return processorName
 }
 
-func consume(bulk *elastic.BulkProcessor) {
-	for pa := range TransactionBuffer {
+func consume() {
+	bulk := client.BulkProcessor(processorName, runtime.NumCPU())
+	for pa := range transactionBuffer {
 		var bars [][]byte
 		fmt.Println("CONSUME!")
 		for _, e := range pa.Events {

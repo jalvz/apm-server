@@ -33,7 +33,7 @@ const (
 )
 
 var (
-	defaultConfig = elasticsearchConfig{
+	DefaultConfig = elasticsearchConfig{
 		Protocol:         "",
 		Path:             "",
 		ProxyURL:         "",
