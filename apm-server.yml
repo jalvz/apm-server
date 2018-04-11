@@ -6,8 +6,6 @@ apm-server:
 
   # Defines the host and port the server is listening on
   host: "localhost:8200"
-  read_timeout: 30s
-  write_timeout: 30s
 
   # Please be aware that frontend support is an experimental feature at the moment!
   frontend:
@@ -54,7 +52,7 @@ setup.kibana:
 #-------------------------- Elasticsearch output ------------------------------
 output.elasticsearch:
   # Array of hosts to connect to.
-  hosts: ["http://localhost:9200"]
+  hosts: ["localhost:9200"]
 
   # Optional index name. The default is "apm" plus version plus date
   # and generates apm-%{[beat.version]}-YYYY.MM.DD keys.
