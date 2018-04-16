@@ -24,6 +24,7 @@ import (
 	"github.com/elastic/apm-server/utility"
 	"github.com/elastic/beats/libbeat/logp"
 	"github.com/elastic/beats/libbeat/monitoring"
+	"time"
 )
 
 const (
@@ -89,9 +90,10 @@ func newMuxer(config *Config, report reporter) *http.ServeMux {
 
 func backendHandler(pf ProcessorFactory, config *Config, report reporter) http.Handler {
 	return logHandler(
+		concurrencyLimitHandler(
 		authHandler(config.SecretToken,
 			processRequestHandler(pf, nil, report,
-				decoder.DecodeSystemData(decoder.DecodeLimitJSONData(config.MaxUnzippedSize), config.AugmentEnabled))))
+				decoder.DecodeSystemData(decoder.DecodeLimitJSONData(config.MaxUnzippedSize), config.AugmentEnabled)))))
 }
 
 func frontendHandler(pf ProcessorFactory, config *Config, report reporter) http.Handler {
@@ -172,6 +174,25 @@ func killSwitchHandler(killSwitch bool, h http.Handler) http.Handler {
 		} else {
 			sendStatus(w, r, http.StatusForbidden, errForbidden)
 		}
+	})
+}
+
+func concurrencyLimitHandler(h http.Handler) http.Handler {
+	semaphore := make(chan struct{}, 10)
+
+	release := func() {
+		<-semaphore
+	}
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case semaphore <- struct{}{}:
+			defer release()
+			h.ServeHTTP(w, r)
+		case <-time.After(time.Second):
+			sendStatus(w, r, http.StatusServiceUnavailable, errors.New("error"))
+		}
+
 	})
 }
 
