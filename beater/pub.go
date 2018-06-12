@@ -66,7 +66,7 @@ func newPublisher(pipeline beat.Pipeline, N int, shutdownTimeout time.Duration) 
 		return nil, err
 	}
 	transactionsCSize := N - 1
-	errorsCSize := int(math.Max(math.Trunc(float64(transactionsCSize)*0.2), 1))
+	errorsCSize := N - 1
 	fmt.Println("transSize  ", transactionsCSize)
 	fmt.Println("errSize ", errorsCSize)
 	p := &publisher{
