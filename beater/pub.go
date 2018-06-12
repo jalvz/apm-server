@@ -7,8 +7,6 @@ import (
 
 	"github.com/pkg/errors"
 
-	"math"
-
 	"fmt"
 
 	"github.com/elastic/apm-server/config"
