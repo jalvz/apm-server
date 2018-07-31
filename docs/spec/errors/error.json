@@ -111,7 +111,6 @@
             }
         }
     },
-    "required": ["timestamp"],
     "anyOf": [
         {
             "required": ["exception"]

@@ -545,7 +545,6 @@ var errorSchema = `{
             }
         }
     },
-    "required": ["timestamp"],
     "anyOf": [
         {
             "required": ["exception"]
