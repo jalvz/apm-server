@@ -24,6 +24,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"strings"
+	"github.com/elastic/beats/libbeat/logp"
 )
 
 func NDJSONStreamDecodeCompressedWithLimit(req *http.Request, lineLimit int) (*NDJSONStreamReader, error) {
@@ -60,20 +61,23 @@ func (sr *NDJSONStreamReader) Read() (map[string]interface{}, error) {
 	sr.latestLine = buf
 
 	if readErr != nil && readErr != io.EOF {
+		logp.NewLogger("FUU").Info("CCC ", readErr)
 		return nil, readErr
 	}
 
 	sr.isEOF = readErr == io.EOF
 
 	if len(buf) == 0 {
+		logp.NewLogger("FUU").Info("DDD ", readErr)
 		return nil, readErr
 	}
 	tmpreader := ioutil.NopCloser(bytes.NewBuffer(buf))
 	decoded, err := DecodeJSONData(tmpreader)
 	if err != nil {
+		logp.NewLogger("FUU").Info("XXX ", err)
 		return nil, JSONDecodeError(err.Error())
 	}
-
+	logp.NewLogger("FUU").Info("wut ", readErr)
 	return decoded, readErr // this might be io.EOF
 }
 

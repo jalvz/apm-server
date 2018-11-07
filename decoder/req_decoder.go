@@ -31,6 +31,7 @@ import (
 
 	"github.com/elastic/apm-server/utility"
 	"github.com/elastic/beats/libbeat/monitoring"
+	"github.com/elastic/beats/libbeat/logp"
 )
 
 type ReqReader func(req *http.Request) (io.ReadCloser, error)
@@ -72,6 +73,7 @@ func DecodeLimitJSONData(maxSize int64) ReqDecoder {
 
 		reader, err := CompressedRequestReader(req)
 		if err != nil {
+			logp.NewLogger("FUU").Info("AAA ", err)
 			return nil, err
 		}
 		reader = http.MaxBytesReader(nil, reader, maxSize)
@@ -130,6 +132,7 @@ func DecodeJSONData(reader io.Reader) (map[string]interface{}, error) {
 	d.UseNumber()
 	if err := d.Decode(&v); err != nil {
 		// If we run out of memory, for example
+		logp.NewLogger("FUU").Info("BBB ", err)
 		return nil, errors.Wrap(err, "data read error")
 	}
 	return v, nil

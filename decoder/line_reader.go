@@ -22,6 +22,7 @@ import (
 	"io"
 
 	"github.com/pkg/errors"
+	"github.com/elastic/beats/libbeat/logp"
 )
 
 var ErrLineTooLong = errors.New("Line exceeded permitted length")
@@ -50,6 +51,7 @@ func (lr *LineReader) ReadLine() ([]byte, error) {
 	for {
 		prefix := false
 		line, err := lr.br.ReadSlice('\n')
+		logp.NewLogger("FUU").Info("OOOH ", string(line))
 		if err == bufio.ErrBufferFull {
 			prefix = true
 		}
