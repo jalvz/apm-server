@@ -18,6 +18,7 @@
 package beater
 
 import (
+	es "github.com/elastic/apm-server/elasticsearch"
 	"net"
 	"net/http"
 	"net/url"
@@ -36,6 +37,8 @@ import (
 	"github.com/elastic/beats/libbeat/common"
 	"github.com/elastic/beats/libbeat/logp"
 	"github.com/elastic/beats/libbeat/outputs/elasticsearch"
+
+	goes "github.com/elastic/go-elasticsearch"
 )
 
 func init() {
@@ -43,11 +46,12 @@ func init() {
 }
 
 type beater struct {
-	config  *Config
-	mutex   sync.Mutex // guards server and stopped
-	server  *http.Server
-	stopped bool
-	logger  *logp.Logger
+	config   *Config
+	mutex    sync.Mutex // guards server and stopped
+	server   *http.Server
+	stopped  bool
+	logger   *logp.Logger
+	esClient *goes.Client
 }
 
 // Creates beater
@@ -79,17 +83,21 @@ func New(b *beat.Beat, ucfg *common.Config) (beat.Beater, error) {
 	shouldSetupPipelines := beaterConfig.Register.Ingest.Pipeline.isEnabled() ||
 		(b.InSetupCmd && beaterConfig.Register.Ingest.Pipeline.Enabled == nil)
 
-	if isElasticsearchOutput(b) && shouldSetupPipelines {
-		logger.Info("Registering pipeline callback.")
-		err := bt.registerPipelineCallback(b)
-		if err != nil {
-			return nil, err
+	if isElasticsearchOutput(b) {
+		bt.esClient, err = es.FromBeatsConfig(b.Config.Output.Config())
+
+		if shouldSetupPipelines {
+			logger.Info("Registering pipeline callback.")
+			err := bt.registerPipelineCallback(b)
+			if err != nil {
+				return nil, err
+			}
+		} else {
+			logger.Info("No pipeline callback registered")
 		}
-	} else {
-		logger.Info("No pipeline callback registered")
 	}
 
-	return bt, nil
+	return bt, err
 }
 
 // parseListener extracts the network and path for a configured host address

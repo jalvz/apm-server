@@ -1140,6 +1140,38 @@
 			"revisionTime": "2019-03-08T20:06:34Z"
 		},
 		{
+			"checksumSHA1": "HEodWzZofBKRkzgeOJyjavo1ock=",
+			"path": "github.com/elastic/go-elasticsearch",
+			"revision": "a9a9dad3f4fcde5e2f1af8fc3f12cb058397320c",
+			"revisionTime": "2019-04-01T07:04:42Z",
+			"version": "7.x",
+			"versionExact": "7.x"
+		},
+		{
+			"checksumSHA1": "N+YfIoKCXQmOhouFY7FJoO23fNU=",
+			"path": "github.com/elastic/go-elasticsearch/esapi",
+			"revision": "a9a9dad3f4fcde5e2f1af8fc3f12cb058397320c",
+			"revisionTime": "2019-04-01T07:04:42Z",
+			"version": "7.x",
+			"versionExact": "7.x"
+		},
+		{
+			"checksumSHA1": "awqS8EH1S7Vxt8OiOVZJd+KbRAI=",
+			"path": "github.com/elastic/go-elasticsearch/estransport",
+			"revision": "a9a9dad3f4fcde5e2f1af8fc3f12cb058397320c",
+			"revisionTime": "2019-04-01T07:04:42Z",
+			"version": "7.x",
+			"versionExact": "7.x"
+		},
+		{
+			"checksumSHA1": "cEtg14juMZYz2f1BNzFnyd9wHXI=",
+			"path": "github.com/elastic/go-elasticsearch/internal/version",
+			"revision": "a9a9dad3f4fcde5e2f1af8fc3f12cb058397320c",
+			"revisionTime": "2019-04-01T07:04:42Z",
+			"version": "7.x",
+			"versionExact": "7.x"
+		},
+		{
 			"checksumSHA1": "3jizmlZPCyo6FAZY8Trk9jA8NH4=",
 			"origin": "github.com/elastic/beats/vendor/github.com/elastic/go-lumber/client/v2",
 			"path": "github.com/elastic/go-lumber/client/v2",
