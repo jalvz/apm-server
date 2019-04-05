@@ -19,6 +19,7 @@ package beater
 
 import (
 	"expvar"
+	"github.com/elastic/apm-server/agentcfg"
 	"net/http"
 	"regexp"
 
@@ -34,6 +35,8 @@ import (
 
 var (
 	rootURL = "/"
+
+	agentConfigURL = "/config"
 
 	// intake v2
 	backendURL = "/intake/v2/events"
@@ -87,7 +90,7 @@ var (
 	}
 )
 
-func newMuxer(beaterConfig *Config, report publish.Reporter) *http.ServeMux {
+func newMuxer(beaterConfig *Config, lookupCfg agentcfg.LookupFunc, report publish.Reporter) *http.ServeMux {
 	mux := http.NewServeMux()
 	logger := logp.NewLogger("handler")
 
@@ -102,6 +105,7 @@ func newMuxer(beaterConfig *Config, report publish.Reporter) *http.ServeMux {
 		mux.Handle(path, route.Handler(path, beaterConfig, report))
 	}
 
+	mux.Handle(agentConfigURL, agentConfigHandler(lookupCfg, beaterConfig.SecretToken))
 	mux.Handle(rootURL, rootHandler(beaterConfig.SecretToken))
 
 	if beaterConfig.Expvar.isEnabled() {

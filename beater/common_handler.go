@@ -24,6 +24,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -284,12 +285,15 @@ func sendStatus(w http.ResponseWriter, r *http.Request, res serverResponse) {
 		body = map[string]interface{}{"error": res.err.Error()}
 		logger.Errorw("error handling request", "response_code", res.code, "error", body)
 	}
+	send(w, r, body, res.code)
+}
 
+func send(w http.ResponseWriter, r *http.Request, body map[string]interface{}, statusCode int) {
 	if acceptsJSON(r) {
-		sendJSON(w, body, res.code)
+		sendJSON(w, body, statusCode)
 		return
 	}
-	sendPlain(w, mapToString(body), res.code)
+	sendPlain(w, mapToString(body), statusCode)
 }
 
 // requestLogger is a convenience function to retrieve the logger that was
@@ -307,23 +311,25 @@ func acceptsJSON(r *http.Request) bool {
 	return strings.Contains(h, "*/*") || strings.Contains(h, "application/json")
 }
 
-func sendJSON(w http.ResponseWriter, body interface{}, statusCode int) {
+func sendJSON(w http.ResponseWriter, body map[string]interface{}, statusCode int) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(statusCode)
 	buf, err := json.MarshalIndent(body, "", "  ")
 	if err != nil {
-		logp.NewLogger("response").Errorf("Error while generating a JSON error response: %v", err)
+		sendPlain(w, mapToString(body), statusCode)
 		return
 	}
-
+	buf = append(buf, "\n"...)
+	w.Header().Set("Content-Length", strconv.Itoa(len(buf)))
 	w.Write(buf)
-	w.Write([]byte("\n"))
 }
 
 func sendPlain(w http.ResponseWriter, body string, statusCode int) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(statusCode)
-	w.Write([]byte(body))
+	bytes := []byte(body)
+	w.Header().Set("Content-Length", strconv.Itoa(len(bytes)))
+	w.Write(bytes)
 }
 
 func mapToString(m map[string]interface{}) string {

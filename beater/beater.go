@@ -18,6 +18,8 @@
 package beater
 
 import (
+	"github.com/elastic/apm-server/agentcfg"
+	"github.com/pkg/errors"
 	"net"
 	"net/http"
 	"net/url"
@@ -43,11 +45,12 @@ func init() {
 }
 
 type beater struct {
-	config  *Config
-	mutex   sync.Mutex // guards server and stopped
-	server  *http.Server
-	stopped bool
-	logger  *logp.Logger
+	config    *Config
+	mutex     sync.Mutex // guards server and stopped
+	server    *http.Server
+	stopped   bool
+	logger    *logp.Logger
+	lookupCfg agentcfg.LookupFunc
 }
 
 // Creates beater
@@ -69,10 +72,23 @@ func New(b *beat.Beat, ucfg *common.Config) (beat.Beater, error) {
 		}
 	}
 
+	remote := agentcfg.NoopRemote()
+	lookupFunc := agentcfg.StartPolling(remote)
+	pollingErr := errors.New("elasticsearch output not enabled")
+	if isElasticsearchOutput(b) {
+		if remote, pollingErr = agentcfg.ElasticSearchRemote(b.Config.Output.Config()); pollingErr == nil {
+			lookupFunc = agentcfg.StartPolling(remote)
+		}
+	}
+	if pollingErr != nil {
+		logger.Warn(errors.WithMessage(pollingErr, "remote agent configuration disabled"))
+	}
+
 	bt := &beater{
-		config:  beaterConfig,
-		stopped: false,
-		logger:  logger,
+		config:    beaterConfig,
+		stopped:   false,
+		logger:    logger,
+		lookupCfg: lookupFunc,
 	}
 
 	// setup pipelines if explicitly directed to or setup --pipelines and config is not set at all
@@ -159,7 +175,7 @@ func (bt *beater) Run(b *beat.Beat) error {
 		return nil
 	}
 
-	bt.server = newServer(bt.config, tracer, pub.Send)
+	bt.server = newServer(bt.config, tracer, bt.lookupCfg, pub.Send)
 	bt.mutex.Unlock()
 
 	var g errgroup.Group

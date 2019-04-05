@@ -20,6 +20,7 @@ package beater
 import (
 	"context"
 	"crypto/tls"
+	"github.com/elastic/apm-server/agentcfg"
 	"net"
 	"net/http"
 
@@ -33,8 +34,8 @@ import (
 	"github.com/elastic/beats/libbeat/version"
 )
 
-func newServer(config *Config, tracer *apm.Tracer, report publish.Reporter) *http.Server {
-	mux := newMuxer(config, report)
+func newServer(config *Config, tracer *apm.Tracer, lookupCfg agentcfg.LookupFunc, report publish.Reporter) *http.Server {
+	mux := newMuxer(config, lookupCfg, report)
 
 	return &http.Server{
 		Addr: config.Host,
