@@ -26,6 +26,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/elastic/apm-server/agentcfg"
+
 	"go.elastic.co/apm"
 	"go.elastic.co/apm/transport"
 	"golang.org/x/sync/errgroup"
@@ -192,7 +194,12 @@ func (bt *beater) Run(b *beat.Beat) error {
 		return nil
 	}
 
-	bt.server = newServer(bt.config, tracer, pub.Send)
+	remote, err := agentcfg.ElasticSearchRemote(b.Config.Output.Config())
+	if !isElasticsearchOutput(b) || err != nil {
+		remote = agentcfg.NoopRemote()
+	}
+
+	bt.server = newServer(bt.config, tracer, remote, pub.Send)
 	bt.mutex.Unlock()
 
 	var g errgroup.Group
