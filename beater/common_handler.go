@@ -24,6 +24,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -281,15 +282,18 @@ func sendStatus(w http.ResponseWriter, r *http.Request, res serverResponse) {
 		responseErrors.Inc()
 
 		logger := requestLogger(r)
-		body = map[string]interface{}{"error": res.err.Error()}
+		body = toJson(res.err)
 		logger.Errorw("error handling request", "response_code", res.code, "error", body)
 	}
+	send(w, r, body, res.code)
+}
 
+func send(w http.ResponseWriter, r *http.Request, body map[string]interface{}, statusCode int) {
 	if acceptsJSON(r) {
-		sendJSON(w, body, res.code)
+		sendJSON(w, body, statusCode)
 		return
 	}
-	sendPlain(w, mapToString(body), res.code)
+	sendPlain(w, mapToString(body), statusCode)
 }
 
 // requestLogger is a convenience function to retrieve the logger that was
@@ -312,18 +316,20 @@ func sendJSON(w http.ResponseWriter, body interface{}, statusCode int) {
 	w.WriteHeader(statusCode)
 	buf, err := json.MarshalIndent(body, "", "  ")
 	if err != nil {
-		logp.NewLogger("response").Errorf("Error while generating a JSON error response: %v", err)
+		sendPlain(w, fmt.Sprintf("%v", body), statusCode)
 		return
 	}
-
+	buf = append(buf, "\n"...)
+	w.Header().Set("Content-Length", strconv.Itoa(len(buf)))
 	w.Write(buf)
-	w.Write([]byte("\n"))
 }
 
 func sendPlain(w http.ResponseWriter, body string, statusCode int) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(statusCode)
-	w.Write([]byte(body))
+	bytes := []byte(body)
+	w.Header().Set("Content-Length", strconv.Itoa(len(bytes)))
+	w.Write(bytes)
 }
 
 func mapToString(m map[string]interface{}) string {
@@ -332,4 +338,8 @@ func mapToString(m map[string]interface{}) string {
 		fmt.Fprintf(b, "%s:\"%s\"\n", k, v)
 	}
 	return b.String()
+}
+
+func toJson(err error) map[string]interface{} {
+	return map[string]interface{}{"error": err.Error()}
 }

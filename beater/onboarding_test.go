@@ -21,6 +21,8 @@ import (
 	"net"
 	"testing"
 
+	"github.com/elastic/apm-server/agentcfg"
+
 	"github.com/stretchr/testify/assert"
 	"go.elastic.co/apm"
 
@@ -38,7 +40,7 @@ func TestNotifyUpServerDown(t *testing.T) {
 	defer lis.Close()
 	config.Host = lis.Addr().String()
 
-	server := newServer(config, apm.DefaultTracer, nopReporter)
+	server := newServer(config, apm.DefaultTracer, agentcfg.NoopRemote(), nopReporter)
 	go run(server, lis, config)
 
 	notifyListening(config, publisher)
