@@ -23,6 +23,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/elastic/apm-server/sourcemap"
+
 	"github.com/pkg/errors"
 	"go.elastic.co/apm"
 
@@ -42,6 +44,7 @@ type Reporter func(context.Context, PendingReq) error
 // the number of concurrent HTTP requests trying to publish at the same time is limited.
 type Publisher struct {
 	pendingRequests chan PendingReq
+	config          transform.Config
 	tracer          *apm.Tracer
 	client          beat.Client
 	m               sync.RWMutex
@@ -50,7 +53,6 @@ type Publisher struct {
 
 type PendingReq struct {
 	Transformables []transform.Transformable
-	Tcontext       *transform.Context
 	Trace          bool
 }
 
@@ -70,7 +72,7 @@ var (
 // newPublisher creates a new publisher instance.
 //MaxCPU new go-routines are started for forwarding events to libbeat.
 //Stop must be called to close the beat.Client and free resources.
-func NewPublisher(pipeline beat.Pipeline, tracer *apm.Tracer, cfg *PublisherConfig) (*Publisher, error) {
+func NewPublisher(pipeline beat.Pipeline, tracer *apm.Tracer, transformConfig transform.Config, sourcemapStore *sourcemap.Store, cfg *PublisherConfig) (*Publisher, error) {
 	processingCfg := beat.ProcessingConfig{
 		Fields: common.MapStr{
 			"observer": common.MapStr{
@@ -98,6 +100,7 @@ func NewPublisher(pipeline beat.Pipeline, tracer *apm.Tracer, cfg *PublisherConf
 
 	p := &Publisher{
 		tracer: tracer,
+		config: transformConfig,
 		client: client,
 
 		// One request will be actively processed by the
@@ -106,7 +109,7 @@ func NewPublisher(pipeline beat.Pipeline, tracer *apm.Tracer, cfg *PublisherConf
 	}
 
 	for i := 0; i < runtime.GOMAXPROCS(0); i++ {
-		go p.run()
+		go p.run(sourcemapStore)
 	}
 
 	return p, nil
@@ -148,13 +151,13 @@ func (p *Publisher) Send(ctx context.Context, req PendingReq) error {
 	}
 }
 
-func (p *Publisher) run() {
+func (p *Publisher) run(sourcemapStore *sourcemap.Store) {
 	for req := range p.pendingRequests {
-		p.processPendingReq(req)
+		p.processPendingReq(req, sourcemapStore)
 	}
 }
 
-func (p *Publisher) processPendingReq(req PendingReq) {
+func (p *Publisher) processPendingReq(req PendingReq, sourcemapStore *sourcemap.Store) {
 	var tx *apm.Transaction
 	if req.Trace {
 		tx = p.tracer.StartTransaction("ProcessPending", "Publisher")
@@ -162,8 +165,8 @@ func (p *Publisher) processPendingReq(req PendingReq) {
 	}
 
 	for _, transformable := range req.Transformables {
-		span := tx.StartSpan("Transform", "Publisher", nil)
-		events := transformable.Transform(req.Tcontext)
+		span := tx.StartSpan("transform", "Publisher", nil)
+		events := transformable.Transform(p.config, sourcemapStore)
 		span.End()
 
 		span = tx.StartSpan("PublishAll", "Publisher", nil)

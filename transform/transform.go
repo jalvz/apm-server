@@ -19,26 +19,16 @@ package transform
 
 import (
 	"regexp"
-	"time"
 
-	"github.com/elastic/beats/libbeat/beat"
-
-	"github.com/elastic/apm-server/model/metadata"
 	"github.com/elastic/apm-server/sourcemap"
+	"github.com/elastic/beats/libbeat/beat"
 )
 
 type Transformable interface {
-	Transform(*Context) []beat.Event
-}
-
-type Context struct {
-	RequestTime time.Time
-	Config      Config
-	Metadata    metadata.Metadata
+	Transform(Config, *sourcemap.Store) []beat.Event
 }
 
 type Config struct {
 	LibraryPattern      *regexp.Regexp
 	ExcludeFromGrouping *regexp.Regexp
-	SourcemapStore      *sourcemap.Store
 }

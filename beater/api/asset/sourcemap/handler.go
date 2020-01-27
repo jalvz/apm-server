@@ -26,10 +26,8 @@ import (
 
 	"github.com/elastic/apm-server/beater/request"
 	"github.com/elastic/apm-server/decoder"
-	"github.com/elastic/apm-server/processor/asset"
+	"github.com/elastic/apm-server/processor/asset/sourcemap"
 	"github.com/elastic/apm-server/publish"
-	"github.com/elastic/apm-server/transform"
-	"github.com/elastic/apm-server/utility"
 )
 
 var (
@@ -39,7 +37,7 @@ var (
 )
 
 // Handler returns a request.Handler for managing asset requests.
-func Handler(dec decoder.ReqDecoder, processor asset.Processor, cfg transform.Config, report publish.Reporter) request.Handler {
+func Handler(dec decoder.ReqDecoder, report publish.Reporter) request.Handler {
 	return func(c *request.Context) {
 		if c.Request.Method != "POST" {
 			c.Result.SetDefault(request.IDResponseErrorsMethodNotAllowed)
@@ -58,25 +56,20 @@ func Handler(dec decoder.ReqDecoder, processor asset.Processor, cfg transform.Co
 			return
 		}
 
-		if err = processor.Validate(data); err != nil {
+		if err = sourcemap.Processor.Validate(data); err != nil {
 			c.Result.SetWithError(request.IDResponseErrorsValidate, err)
 			c.Write()
 			return
 		}
 
-		metadata, transformables, err := processor.Decode(data)
+		transformables, err := sourcemap.Processor.Decode(data)
 		if err != nil {
 			c.Result.SetWithError(request.IDResponseErrorsDecode, err)
 			c.Write()
 			return
 		}
 
-		tctx := &transform.Context{
-			RequestTime: utility.RequestTime(c.Request.Context()),
-			Config:      cfg,
-			Metadata:    *metadata,
-		}
-		req := publish.PendingReq{Transformables: transformables, Tcontext: tctx}
+		req := publish.PendingReq{Transformables: transformables}
 		span, ctx := apm.StartSpan(c.Request.Context(), "Send", "Reporter")
 		defer span.End()
 		req.Trace = !span.Dropped()

@@ -28,7 +28,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/santhosh-tekuri/jsonschema"
+	"github.com/elastic/apm-server/processor/stream"
+	"github.com/elastic/apm-server/sourcemap"
 
 	"github.com/elastic/beats/libbeat/beat"
 	"github.com/elastic/beats/libbeat/common"
@@ -61,8 +62,12 @@ const (
 
 var cachedModelSchema = validation.CreateSchema(schema.ModelSchema, processorName)
 
-func ModelSchema() *jsonschema.Schema {
-	return cachedModelSchema
+func EventModel(experimental bool) stream.EventModel {
+	return stream.EventModel{
+		Name:   "error",
+		Schema: cachedModelSchema,
+		Decode: EventDecoder(experimental),
+	}
 }
 
 type Event struct {
@@ -91,6 +96,8 @@ type Event struct {
 
 	Experimental interface{}
 	data         common.MapStr
+
+	Metadata metadata.Metadata
 }
 
 type Exception struct {
@@ -113,71 +120,73 @@ type Log struct {
 	Stacktrace   m.Stacktrace
 }
 
-func DecodeEvent(input interface{}, cfg m.Config, err error) (transform.Transformable, error) {
-	if err != nil {
-		return nil, err
-	}
-	if input == nil {
-		return nil, errMissingInput
-	}
-
-	raw, ok := input.(map[string]interface{})
-	if !ok {
-		return nil, errInvalidType
-	}
-
-	ctx, err := m.DecodeContext(raw, cfg, nil)
-	if err != nil {
-		return nil, err
-	}
-	decoder := utility.ManualDecoder{}
-	e := Event{
-		Id:                 decoder.StringPtr(raw, "id"),
-		Culprit:            decoder.StringPtr(raw, "culprit"),
-		Labels:             ctx.Labels,
-		Page:               ctx.Page,
-		Http:               ctx.Http,
-		Url:                ctx.Url,
-		Custom:             ctx.Custom,
-		User:               ctx.User,
-		Service:            ctx.Service,
-		Experimental:       ctx.Experimental,
-		Client:             ctx.Client,
-		Timestamp:          decoder.TimeEpochMicro(raw, "timestamp"),
-		TransactionId:      decoder.StringPtr(raw, "transaction_id"),
-		ParentId:           decoder.StringPtr(raw, "parent_id"),
-		TraceId:            decoder.StringPtr(raw, "trace_id"),
-		TransactionSampled: decoder.BoolPtr(raw, "sampled", "transaction"),
-		TransactionType:    decoder.StringPtr(raw, "type", "transaction"),
-	}
-
-	ex := decoder.MapStr(raw, "exception")
-	e.Exception = decodeException(&decoder)(ex)
-
-	log := decoder.MapStr(raw, "log")
-	logMsg := decoder.StringPtr(log, "message")
-	if logMsg != nil {
-		e.Log = &Log{
-			Message:      *logMsg,
-			ParamMessage: decoder.StringPtr(log, "param_message"),
-			Level:        decoder.StringPtr(log, "level"),
-			LoggerName:   decoder.StringPtr(log, "logger_name"),
-			Stacktrace:   m.Stacktrace{},
+func EventDecoder(experimental bool) func(interface{}, time.Time, metadata.Metadata) (transform.Transformable, error) {
+	return func(input interface{}, requestTime time.Time, metadata metadata.Metadata) (transform.Transformable, error) {
+		if input == nil {
+			return nil, errMissingInput
 		}
-		var stacktrace *m.Stacktrace
-		stacktrace, decoder.Err = m.DecodeStacktrace(log["stacktrace"], decoder.Err)
-		if stacktrace != nil {
-			e.Log.Stacktrace = *stacktrace
-		}
-	}
-	if decoder.Err != nil {
-		return nil, decoder.Err
-	}
 
-	return &e, nil
+		raw, ok := input.(map[string]interface{})
+		if !ok {
+			return nil, errInvalidType
+		}
+
+		ctx, err := m.DecodeContext(raw, experimental, nil)
+		if err != nil {
+			return nil, err
+		}
+		decoder := utility.ManualDecoder{}
+		e := Event{
+			Id:                 decoder.StringPtr(raw, "id"),
+			Culprit:            decoder.StringPtr(raw, "culprit"),
+			Labels:             ctx.Labels,
+			Page:               ctx.Page,
+			Http:               ctx.Http,
+			Url:                ctx.Url,
+			Custom:             ctx.Custom,
+			User:               ctx.User,
+			Service:            ctx.Service,
+			Experimental:       ctx.Experimental,
+			Client:             ctx.Client,
+			Timestamp:          decoder.TimeEpochMicro(raw, "timestamp"),
+			TransactionId:      decoder.StringPtr(raw, "transaction_id"),
+			ParentId:           decoder.StringPtr(raw, "parent_id"),
+			TraceId:            decoder.StringPtr(raw, "trace_id"),
+			TransactionSampled: decoder.BoolPtr(raw, "sampled", "transaction"),
+			TransactionType:    decoder.StringPtr(raw, "type", "transaction"),
+			Metadata:           metadata,
+		}
+		if e.Timestamp.IsZero() {
+			e.Timestamp = requestTime
+		}
+
+		ex := decoder.MapStr(raw, "exception")
+		e.Exception = decodeException(&decoder)(ex)
+
+		log := decoder.MapStr(raw, "log")
+		logMsg := decoder.StringPtr(log, "message")
+		if logMsg != nil {
+			e.Log = &Log{
+				Message:      *logMsg,
+				ParamMessage: decoder.StringPtr(log, "param_message"),
+				Level:        decoder.StringPtr(log, "level"),
+				LoggerName:   decoder.StringPtr(log, "logger_name"),
+				Stacktrace:   m.Stacktrace{},
+			}
+			var stacktrace *m.Stacktrace
+			stacktrace, decoder.Err = m.DecodeStacktrace(log["stacktrace"], decoder.Err)
+			if stacktrace != nil {
+				e.Log.Stacktrace = *stacktrace
+			}
+		}
+		if decoder.Err != nil {
+			return nil, decoder.Err
+		}
+		return &e, nil
+	}
 }
 
-func (e *Event) Transform(tctx *transform.Context) []beat.Event {
+func (e *Event) Transform(config transform.Config, sourcemapStore *sourcemap.Store) []beat.Event {
 	transformations.Inc()
 
 	if e.Exception != nil {
@@ -188,12 +197,12 @@ func (e *Event) Transform(tctx *transform.Context) []beat.Event {
 	}
 
 	fields := common.MapStr{
-		"error":     e.fields(tctx),
+		"error":     e.fields(config, sourcemapStore),
 		"processor": processorEntry,
 	}
 
 	// first set the generic metadata (order is relevant)
-	tctx.Metadata.Set(fields)
+	e.Metadata.Set(fields)
 	// then add event specific information
 	utility.Update(fields, "user", e.User.Fields())
 	clientFields := e.Client.Fields()
@@ -221,9 +230,6 @@ func (e *Event) Transform(tctx *transform.Context) []beat.Event {
 	utility.AddId(fields, "parent", e.ParentId)
 	utility.AddId(fields, "trace", e.TraceId)
 
-	if e.Timestamp.IsZero() {
-		e.Timestamp = tctx.RequestTime
-	}
 	utility.Set(fields, "timestamp", utility.TimeAsMicros(e.Timestamp))
 
 	return []beat.Event{
@@ -234,16 +240,18 @@ func (e *Event) Transform(tctx *transform.Context) []beat.Event {
 	}
 }
 
-func (e *Event) fields(tctx *transform.Context) common.MapStr {
+func (e *Event) fields(config transform.Config, sourcemapStore *sourcemap.Store) common.MapStr {
 	e.data = common.MapStr{}
 	e.add("id", e.Id)
 	e.add("page", e.Page.Fields())
 
 	exceptionChain := flattenExceptionTree(e.Exception)
-	e.addException(tctx, exceptionChain)
-	e.addLog(tctx)
-
-	e.updateCulprit(tctx)
+	e.addException(config, sourcemapStore, exceptionChain)
+	e.addLog(config, sourcemapStore)
+	// TODO is this needed?
+	if sourcemapStore != nil {
+		e.updateCulprit()
+	}
 	e.add("culprit", e.Culprit)
 	e.add("custom", e.Custom.Fields())
 
@@ -252,10 +260,7 @@ func (e *Event) fields(tctx *transform.Context) common.MapStr {
 	return e.data
 }
 
-func (e *Event) updateCulprit(tctx *transform.Context) {
-	if tctx.Config.SourcemapStore == nil {
-		return
-	}
+func (e *Event) updateCulprit() {
 	var fr *m.StacktraceFrame
 	if e.Log != nil {
 		fr = findSmappedNonLibraryFrame(e.Log.Stacktrace)
@@ -287,7 +292,7 @@ func findSmappedNonLibraryFrame(frames []*m.StacktraceFrame) *m.StacktraceFrame 
 	return nil
 }
 
-func (e *Event) addException(tctx *transform.Context, chain []Exception) {
+func (e *Event) addException(config transform.Config, sourcemapStore *sourcemap.Store, chain []Exception) {
 	var result []common.MapStr
 	for _, exception := range chain {
 		ex := common.MapStr{}
@@ -309,7 +314,7 @@ func (e *Event) addException(tctx *transform.Context, chain []Exception) {
 			utility.Set(ex, "code", code.String())
 		}
 
-		st := exception.Stacktrace.Transform(tctx)
+		st := exception.Stacktrace.Transform(config, sourcemapStore, e.Metadata.Service)
 		utility.Set(ex, "stacktrace", st)
 
 		result = append(result, ex)
@@ -318,7 +323,7 @@ func (e *Event) addException(tctx *transform.Context, chain []Exception) {
 	e.add("exception", result)
 }
 
-func (e *Event) addLog(tctx *transform.Context) {
+func (e *Event) addLog(config transform.Config, sourcemapStore *sourcemap.Store) {
 	if e.Log == nil {
 		return
 	}
@@ -327,7 +332,7 @@ func (e *Event) addLog(tctx *transform.Context) {
 	utility.Set(log, "param_message", e.Log.ParamMessage)
 	utility.Set(log, "logger_name", e.Log.LoggerName)
 	utility.Set(log, "level", e.Log.Level)
-	st := e.Log.Stacktrace.Transform(tctx)
+	st := e.Log.Stacktrace.Transform(config, sourcemapStore, e.Metadata.Service)
 	utility.Set(log, "stacktrace", st)
 
 	e.add("log", log)

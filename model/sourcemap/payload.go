@@ -20,6 +20,8 @@ package sourcemap
 import (
 	"time"
 
+	"github.com/elastic/apm-server/sourcemap"
+
 	"github.com/santhosh-tekuri/jsonschema"
 
 	"github.com/elastic/beats/libbeat/beat"
@@ -59,16 +61,16 @@ type Sourcemap struct {
 	BundleFilepath string
 }
 
-func (pa *Sourcemap) Transform(tctx *transform.Context) []beat.Event {
+func (pa *Sourcemap) Transform(_ transform.Config, sourcemapStore *sourcemap.Store) []beat.Event {
 	sourcemapCounter.Inc()
 	if pa == nil {
 		return nil
 	}
 
-	if tctx.Config.SourcemapStore == nil {
+	if sourcemapStore == nil {
 		logp.NewLogger(logs.Sourcemap).Error("Sourcemap Accessor is nil, cache cannot be invalidated.")
 	} else {
-		tctx.Config.SourcemapStore.Added(pa.ServiceName, pa.ServiceVersion, pa.BundleFilepath)
+		sourcemapStore.Added(pa.ServiceName, pa.ServiceVersion, pa.BundleFilepath)
 	}
 
 	ev := beat.Event{

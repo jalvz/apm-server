@@ -281,7 +281,7 @@ func TestErrorEventDecode(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			transformable, err := DecodeEvent(test.input, test.cfg, test.inpErr)
+			transformable, err := EventDecoder(test.input, test.cfg, test.inpErr)
 			if test.e != nil && assert.NotNil(t, transformable) {
 				event := transformable.(*Event)
 				assert.Equal(t, test.e, event)
@@ -314,7 +314,7 @@ func TestHandleExceptionTree(t *testing.T) {
 			},
 		},
 	}
-	result, err := DecodeEvent(errorEvent, m.Config{}, nil)
+	result, err := EventDecoder(errorEvent, m.Config{}, nil)
 	require.NoError(t, err)
 
 	event := result.(*Event)
@@ -341,7 +341,7 @@ func TestDecodingAnomalies(t *testing.T) {
 				"type":    "type0",
 			},
 		}
-		result, err := DecodeEvent(badID, m.Config{}, nil)
+		result, err := EventDecoder(badID, m.Config{}, nil)
 		assert.Error(t, err)
 		assert.Nil(t, result)
 	})
@@ -357,7 +357,7 @@ func TestDecodingAnomalies(t *testing.T) {
 				},
 			},
 		}
-		result, err := DecodeEvent(badException, m.Config{}, nil)
+		result, err := EventDecoder(badException, m.Config{}, nil)
 		assert.Error(t, err)
 		assert.Nil(t, result)
 	})
@@ -371,7 +371,7 @@ func TestDecodingAnomalies(t *testing.T) {
 				"cause":   []interface{}{7.4},
 			},
 		}
-		result, err := DecodeEvent(badException, m.Config{}, nil)
+		result, err := EventDecoder(badException, m.Config{}, nil)
 		assert.Error(t, err)
 		assert.EqualError(t, err, "cause must be an exception")
 		assert.Nil(t, result)
@@ -388,7 +388,7 @@ func TestDecodingAnomalies(t *testing.T) {
 				},
 			},
 		}
-		result, err := DecodeEvent(emptyCauses, m.Config{}, nil)
+		result, err := EventDecoder(emptyCauses, m.Config{}, nil)
 		require.NoError(t, err)
 		assert.NotNil(t, result)
 

@@ -21,6 +21,8 @@ import (
 	"context"
 	"time"
 
+	"github.com/elastic/apm-server/sourcemap"
+
 	"github.com/elastic/beats/libbeat/beat"
 	"github.com/elastic/beats/libbeat/common"
 	"github.com/elastic/beats/libbeat/logp"
@@ -35,7 +37,6 @@ func notifyListening(ctx context.Context, config *config.Config, reporter publis
 	logp.NewLogger(logs.Onboarding).Info("Publishing onboarding document")
 	reporter(ctx, publish.PendingReq{
 		Transformables: []transform.Transformable{onboardingDoc{listenAddr: config.Host}},
-		Tcontext:       &transform.Context{RequestTime: time.Now()},
 	})
 }
 
@@ -43,9 +44,9 @@ type onboardingDoc struct {
 	listenAddr string
 }
 
-func (o onboardingDoc) Transform(tctx *transform.Context) []beat.Event {
+func (o onboardingDoc) Transform(_ transform.Config, _ *sourcemap.Store) []beat.Event {
 	return []beat.Event{{
-		Timestamp: tctx.RequestTime,
+		Timestamp: time.Now(),
 		Fields: common.MapStr{
 			"processor": common.MapStr{"name": "onboarding", "event": "onboarding"},
 			"observer":  common.MapStr{"listening": o.listenAddr},

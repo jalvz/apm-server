@@ -20,8 +20,10 @@ package transaction
 import (
 	"time"
 
+	"github.com/elastic/apm-server/processor/stream"
+	"github.com/elastic/apm-server/sourcemap"
+
 	"github.com/pkg/errors"
-	"github.com/santhosh-tekuri/jsonschema"
 
 	"github.com/elastic/beats/libbeat/beat"
 	"github.com/elastic/beats/libbeat/common"
@@ -51,8 +53,12 @@ var (
 	errInvalidType  = errors.New("invalid type for transaction event")
 )
 
-func ModelSchema() *jsonschema.Schema {
-	return cachedModelSchema
+func EventModel(experimental bool) stream.EventModel {
+	return stream.EventModel{
+		Name:   "transaction",
+		Schema: cachedModelSchema,
+		Decode: EventDecoder(experimental),
+	}
 }
 
 type Event struct {
@@ -80,6 +86,8 @@ type Event struct {
 	Client    *m.Client
 
 	Experimental interface{}
+
+	Metadata metadata.Metadata
 }
 
 type SpanCount struct {
@@ -87,56 +95,59 @@ type SpanCount struct {
 	Started *int
 }
 
-func DecodeEvent(input interface{}, cfg m.Config, err error) (transform.Transformable, error) {
-	if err != nil {
-		return nil, err
-	}
-	if input == nil {
-		return nil, errMissingInput
-	}
-	raw, ok := input.(map[string]interface{})
-	if !ok {
-		return nil, errInvalidType
-	}
+func EventDecoder(experimental bool) func(interface{}, time.Time, metadata.Metadata) (transform.Transformable, error) {
+	return func(input interface{}, requestTime time.Time, metadata metadata.Metadata) (transform.Transformable, error) {
+		if input == nil {
+			return nil, errMissingInput
+		}
+		raw, ok := input.(map[string]interface{})
+		if !ok {
+			return nil, errInvalidType
+		}
 
-	ctx, err := m.DecodeContext(raw, cfg, nil)
-	if err != nil {
-		return nil, err
-	}
-	decoder := utility.ManualDecoder{}
-	e := Event{
-		Id:           decoder.String(raw, "id"),
-		Type:         decoder.String(raw, "type"),
-		Name:         decoder.StringPtr(raw, "name"),
-		Result:       decoder.StringPtr(raw, "result"),
-		Duration:     decoder.Float64(raw, "duration"),
-		Labels:       ctx.Labels,
-		Page:         ctx.Page,
-		Http:         ctx.Http,
-		Url:          ctx.Url,
-		Custom:       ctx.Custom,
-		User:         ctx.User,
-		Service:      ctx.Service,
-		Client:       ctx.Client,
-		Experimental: ctx.Experimental,
-		Message:      ctx.Message,
-		Sampled:      decoder.BoolPtr(raw, "sampled"),
-		Marks:        decoder.MapStr(raw, "marks"),
-		Timestamp:    decoder.TimeEpochMicro(raw, "timestamp"),
-		SpanCount: SpanCount{
-			Dropped: decoder.IntPtr(raw, "dropped", "span_count"),
-			Started: decoder.IntPtr(raw, "started", "span_count")},
-		ParentId: decoder.StringPtr(raw, "parent_id"),
-		TraceId:  decoder.String(raw, "trace_id"),
-	}
-	if decoder.Err != nil {
-		return nil, decoder.Err
-	}
+		ctx, err := m.DecodeContext(raw, experimental, nil)
+		if err != nil {
+			return nil, err
+		}
+		decoder := utility.ManualDecoder{}
+		e := Event{
+			Id:           decoder.String(raw, "id"),
+			Type:         decoder.String(raw, "type"),
+			Name:         decoder.StringPtr(raw, "name"),
+			Result:       decoder.StringPtr(raw, "result"),
+			Duration:     decoder.Float64(raw, "duration"),
+			Labels:       ctx.Labels,
+			Page:         ctx.Page,
+			Http:         ctx.Http,
+			Url:          ctx.Url,
+			Custom:       ctx.Custom,
+			User:         ctx.User,
+			Service:      ctx.Service,
+			Client:       ctx.Client,
+			Experimental: ctx.Experimental,
+			Message:      ctx.Message,
+			Sampled:      decoder.BoolPtr(raw, "sampled"),
+			Marks:        decoder.MapStr(raw, "marks"),
+			Timestamp:    decoder.TimeEpochMicro(raw, "timestamp"),
+			SpanCount: SpanCount{
+				Dropped: decoder.IntPtr(raw, "dropped", "span_count"),
+				Started: decoder.IntPtr(raw, "started", "span_count")},
+			ParentId: decoder.StringPtr(raw, "parent_id"),
+			TraceId:  decoder.String(raw, "trace_id"),
+			Metadata: metadata,
+		}
+		if e.Timestamp.IsZero() {
+			e.Timestamp = requestTime
+		}
 
-	return &e, nil
+		if decoder.Err != nil {
+			return nil, decoder.Err
+		}
+		return &e, nil
+	}
 }
 
-func (e *Event) fields(tctx *transform.Context) common.MapStr {
+func (e *Event) fields() common.MapStr {
 	tx := common.MapStr{"id": e.Id}
 	utility.Set(tx, "name", e.Name)
 	utility.Set(tx, "duration", utility.MillisAsMicros(e.Duration))
@@ -168,20 +179,16 @@ func (e *Event) fields(tctx *transform.Context) common.MapStr {
 	return tx
 }
 
-func (e *Event) Transform(tctx *transform.Context) []beat.Event {
+func (e *Event) Transform(_ transform.Config, _ *sourcemap.Store) []beat.Event {
 	transformations.Inc()
-
-	if e.Timestamp.IsZero() {
-		e.Timestamp = tctx.RequestTime
-	}
 
 	fields := common.MapStr{
 		"processor":        processorEntry,
-		transactionDocType: e.fields(tctx),
+		transactionDocType: e.fields(),
 	}
 
 	// first set generic metadata (order is relevant)
-	tctx.Metadata.Set(fields)
+	e.Metadata.Set(fields)
 
 	// then merge event specific information
 	utility.Update(fields, "user", e.User.Fields())

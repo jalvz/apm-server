@@ -20,8 +20,10 @@ package api
 import (
 	"expvar"
 	"net/http"
-	"regexp"
 
+	"github.com/elastic/apm-server/model/metricset"
+	"github.com/elastic/apm-server/model/span"
+	"github.com/elastic/apm-server/model/transaction"
 	"github.com/elastic/beats/libbeat/monitoring"
 
 	"github.com/elastic/beats/libbeat/logp"
@@ -38,8 +40,7 @@ import (
 	"github.com/elastic/apm-server/decoder"
 	"github.com/elastic/apm-server/kibana"
 	logs "github.com/elastic/apm-server/log"
-	"github.com/elastic/apm-server/model"
-	psourcemap "github.com/elastic/apm-server/processor/asset/sourcemap"
+	apmerror "github.com/elastic/apm-server/model/error"
 	"github.com/elastic/apm-server/processor/stream"
 	"github.com/elastic/apm-server/publish"
 	"github.com/elastic/apm-server/transform"
@@ -130,10 +131,15 @@ func profileHandler(cfg *config.Config, builder *authorization.Builder, reporter
 }
 
 func backendIntakeHandler(cfg *config.Config, builder *authorization.Builder, reporter publish.Reporter) (request.Handler, error) {
+	experimental := cfg.Mode == config.ModeExperimental
 	h := intake.Handler(systemMetadataDecoder(cfg, emptyDecoder),
 		&stream.Processor{
-			Tconfig:      transform.Config{},
-			Mconfig:      model.Config{Experimental: cfg.Mode == config.ModeExperimental},
+			Models: []stream.EventModel{
+				transaction.EventModel(experimental),
+				span.EventModel(experimental),
+				apmerror.EventModel(experimental),
+				metricset.EventModel(),
+			},
 			MaxEventSize: cfg.MaxEventSize,
 		},
 		reporter)
@@ -142,26 +148,24 @@ func backendIntakeHandler(cfg *config.Config, builder *authorization.Builder, re
 }
 
 func rumIntakeHandler(cfg *config.Config, _ *authorization.Builder, reporter publish.Reporter) (request.Handler, error) {
-	tcfg, err := rumTransformConfig(cfg)
-	if err != nil {
-		return nil, err
-	}
+	experimental := cfg.Mode == config.ModeExperimental
 	h := intake.Handler(userMetaDataDecoder(cfg, emptyDecoder),
 		&stream.Processor{
-			Tconfig:      *tcfg,
-			Mconfig:      model.Config{Experimental: cfg.Mode == config.ModeExperimental},
 			MaxEventSize: cfg.MaxEventSize,
+			Models: []stream.EventModel{
+				transaction.EventModel(experimental),
+				span.EventModel(experimental),
+				apmerror.EventModel(experimental),
+				// TODO not for RUM?
+				metricset.EventModel(),
+			},
 		},
 		reporter)
 	return middleware.Wrap(h, rumMiddleware(cfg, nil, intake.MonitoringMap)...)
 }
 
 func sourcemapHandler(cfg *config.Config, builder *authorization.Builder, reporter publish.Reporter) (request.Handler, error) {
-	tcfg, err := rumTransformConfig(cfg)
-	if err != nil {
-		return nil, err
-	}
-	h := sourcemap.Handler(systemMetadataDecoder(cfg, decoder.DecodeSourcemapFormData), psourcemap.Processor, *tcfg, reporter)
+	h := sourcemap.Handler(systemMetadataDecoder(cfg, decoder.DecodeSourcemapFormData), reporter)
 	authHandler := builder.ForPrivilege(authorization.PrivilegeSourcemapWrite.Action)
 	return middleware.Wrap(h, sourcemapMiddleware(cfg, authHandler)...)
 }
@@ -241,16 +245,4 @@ func systemMetadataDecoder(beaterConfig *config.Config, d decoder.ReqDecoder) de
 
 func userMetaDataDecoder(beaterConfig *config.Config, d decoder.ReqDecoder) decoder.ReqDecoder {
 	return decoder.DecodeUserData(d, beaterConfig.AugmentEnabled)
-}
-
-func rumTransformConfig(beaterConfig *config.Config) (*transform.Config, error) {
-	store, err := beaterConfig.RumConfig.MemoizedSourcemapStore()
-	if err != nil {
-		return nil, err
-	}
-	return &transform.Config{
-		SourcemapStore:      store,
-		LibraryPattern:      regexp.MustCompile(beaterConfig.RumConfig.LibraryPattern),
-		ExcludeFromGrouping: regexp.MustCompile(beaterConfig.RumConfig.ExcludeFromGrouping),
-	}, nil
 }

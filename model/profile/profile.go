@@ -21,6 +21,9 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/elastic/apm-server/model/metadata"
+	"github.com/elastic/apm-server/sourcemap"
+
 	"github.com/OneOfOne/xxhash"
 	"github.com/google/pprof/profile"
 
@@ -42,11 +45,12 @@ var processorEntry = common.MapStr{
 
 // PprofProfile represents a resource profile.
 type PprofProfile struct {
-	Profile *profile.Profile
+	Profile  *profile.Profile
+	Metadata metadata.Metadata
 }
 
 // Transform transforms a Profile into a sequence of beat.Events: one per profile sample.
-func (pp PprofProfile) Transform(tctx *transform.Context) []beat.Event {
+func (pp PprofProfile) Transform(_ transform.Config, _ *sourcemap.Store) []beat.Event {
 	// Precompute value field names for use in each event.
 	// TODO(axw) limit to well-known value names?
 	profileTimestamp := time.Unix(0, pp.Profile.TimeNanos)
@@ -107,7 +111,7 @@ func (pp PprofProfile) Transform(tctx *transform.Context) []beat.Event {
 				profileDocType: profileFields,
 			},
 		}
-		tctx.Metadata.Set(event.Fields)
+		pp.Metadata.Set(event.Fields)
 		if len(sample.Label) > 0 {
 			labels := make(common.MapStr)
 			for k, v := range sample.Label {

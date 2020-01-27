@@ -292,7 +292,7 @@ func TestStacktraceTransformWithSourcemapping(t *testing.T) {
 				Metadata: metadata.Metadata{Service: &service},
 			}
 
-			// run `Stacktrace.Transform` twice to ensure method is idempotent
+			// run `Stacktrace.transform` twice to ensure method is idempotent
 			tc.Stacktrace.Transform(tctx)
 			output := tc.Stacktrace.Transform(tctx)
 			assert.Equal(t, tc.Output, output)

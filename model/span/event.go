@@ -22,8 +22,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/elastic/apm-server/processor/stream"
+	"github.com/elastic/apm-server/sourcemap"
+
 	"github.com/pkg/errors"
-	"github.com/santhosh-tekuri/jsonschema"
 
 	"github.com/elastic/beats/libbeat/beat"
 	"github.com/elastic/beats/libbeat/common"
@@ -55,8 +57,12 @@ var (
 	errInvalidType  = errors.New("invalid type for span event")
 )
 
-func ModelSchema() *jsonschema.Schema {
-	return cachedModelSchema
+func EventModel(experimental bool) stream.EventModel {
+	return stream.EventModel{
+		Name:   "span",
+		Schema: cachedModelSchema,
+		Decode: EventDecoder(experimental),
+	}
 }
 
 type Event struct {
@@ -86,6 +92,7 @@ type Event struct {
 	DestinationService *DestinationService
 
 	Experimental interface{}
+	Metadata     metadata.Metadata
 }
 
 // DB contains information related to a database query of a span event
@@ -256,105 +263,113 @@ func (d *DestinationService) fields() common.MapStr {
 	return fields
 }
 
-// DecodeEvent decodes a span event.
-func DecodeEvent(input interface{}, cfg m.Config, err error) (transform.Transformable, error) {
-	if err != nil {
-		return nil, err
-	}
-	if input == nil {
-		return nil, errMissingInput
-	}
-	raw, ok := input.(map[string]interface{})
-	if !ok {
-		return nil, errInvalidType
-	}
-
-	decoder := utility.ManualDecoder{}
-	event := Event{
-		Name:          decoder.String(raw, "name"),
-		Start:         decoder.Float64Ptr(raw, "start"),
-		Duration:      decoder.Float64(raw, "duration"),
-		Sync:          decoder.BoolPtr(raw, "sync"),
-		Timestamp:     decoder.TimeEpochMicro(raw, "timestamp"),
-		Id:            decoder.String(raw, "id"),
-		ParentId:      decoder.String(raw, "parent_id"),
-		TraceId:       decoder.String(raw, "trace_id"),
-		TransactionId: decoder.StringPtr(raw, "transaction_id"),
-		Type:          decoder.String(raw, "type"),
-		Subtype:       decoder.StringPtr(raw, "subtype"),
-		Action:        decoder.StringPtr(raw, "action"),
-	}
-
-	ctx := decoder.MapStr(raw, "context")
-	if ctx != nil {
-		if labels, ok := ctx["tags"].(map[string]interface{}); ok {
-			event.Labels = labels
+func EventDecoder(experimental bool) func(interface{}, time.Time, metadata.Metadata) (transform.Transformable, error) {
+	return func(input interface{}, requestTime time.Time, meta metadata.Metadata) (transform.Transformable, error) {
+		if input == nil {
+			return nil, errMissingInput
+		}
+		raw, ok := input.(map[string]interface{})
+		if !ok {
+			return nil, errInvalidType
 		}
 
-		db, err := decodeDB(ctx, decoder.Err)
-		if err != nil {
-			return nil, err
+		decoder := utility.ManualDecoder{}
+		event := Event{
+			Name:          decoder.String(raw, "name"),
+			Start:         decoder.Float64Ptr(raw, "start"),
+			Duration:      decoder.Float64(raw, "duration"),
+			Sync:          decoder.BoolPtr(raw, "sync"),
+			Timestamp:     decoder.TimeEpochMicro(raw, "timestamp"),
+			Id:            decoder.String(raw, "id"),
+			ParentId:      decoder.String(raw, "parent_id"),
+			TraceId:       decoder.String(raw, "trace_id"),
+			TransactionId: decoder.StringPtr(raw, "transaction_id"),
+			Type:          decoder.String(raw, "type"),
+			Subtype:       decoder.StringPtr(raw, "subtype"),
+			Action:        decoder.StringPtr(raw, "action"),
+			Metadata:      meta,
 		}
-		event.DB = db
 
-		http, err := decodeHTTP(ctx, decoder.Err)
-		if err != nil {
-			return nil, err
+		if event.Timestamp.IsZero() {
+			event.Timestamp = requestTime
 		}
-		event.HTTP = http
 
-		dest, destService, err := decodeDestination(ctx, decoder.Err)
-		if err != nil {
-			return nil, err
+		// adjust timestamp to be reqTime + start
+		if event.Timestamp.IsZero() && event.Start != nil {
+			event.Timestamp = requestTime.Add(time.Duration(float64(time.Millisecond) * *event.Start))
 		}
-		event.Destination = dest
-		event.DestinationService = destService
 
-		if s, set := ctx["service"]; set {
-			service, err := metadata.DecodeService(s, decoder.Err)
+		ctx := decoder.MapStr(raw, "context")
+		if ctx != nil {
+			if labels, ok := ctx["tags"].(map[string]interface{}); ok {
+				event.Labels = labels
+			}
+
+			db, err := decodeDB(ctx, decoder.Err)
 			if err != nil {
 				return nil, err
 			}
-			event.Service = service
-		}
+			event.DB = db
 
-		if event.Message, err = m.DecodeMessage(ctx, decoder.Err); err != nil {
-			return nil, err
-		}
+			http, err := decodeHTTP(ctx, decoder.Err)
+			if err != nil {
+				return nil, err
+			}
+			event.HTTP = http
 
-		if cfg.Experimental {
-			if obj, set := ctx["experimental"]; set {
-				event.Experimental = obj
+			dest, destService, err := decodeDestination(ctx, decoder.Err)
+			if err != nil {
+				return nil, err
+			}
+			event.Destination = dest
+			event.DestinationService = destService
+
+			if s, set := ctx["service"]; set {
+				service, err := metadata.DecodeService(s, decoder.Err)
+				if err != nil {
+					return nil, err
+				}
+				event.Service = service
+			}
+
+			if event.Message, err = m.DecodeMessage(ctx, decoder.Err); err != nil {
+				return nil, err
+			}
+
+			if experimental {
+				if obj, set := ctx["experimental"]; set {
+					event.Experimental = obj
+				}
 			}
 		}
-	}
 
-	var stacktr *m.Stacktrace
-	stacktr, decoder.Err = m.DecodeStacktrace(raw["stacktrace"], decoder.Err)
-	if decoder.Err != nil {
-		return nil, decoder.Err
-	}
-	if stacktr != nil {
-		event.Stacktrace = *stacktr
-	}
-
-	if event.Subtype == nil && event.Action == nil {
-		sep := "."
-		t := strings.Split(event.Type, sep)
-		event.Type = t[0]
-		if len(t) > 1 {
-			event.Subtype = &t[1]
+		var stacktr *m.Stacktrace
+		stacktr, decoder.Err = m.DecodeStacktrace(raw["stacktrace"], decoder.Err)
+		if decoder.Err != nil {
+			return nil, decoder.Err
 		}
-		if len(t) > 2 {
-			action := strings.Join(t[2:], sep)
-			event.Action = &action
+		if stacktr != nil {
+			event.Stacktrace = *stacktr
 		}
-	}
 
-	return &event, nil
+		if event.Subtype == nil && event.Action == nil {
+			sep := "."
+			t := strings.Split(event.Type, sep)
+			event.Type = t[0]
+			if len(t) > 1 {
+				event.Subtype = &t[1]
+			}
+			if len(t) > 2 {
+				action := strings.Join(t[2:], sep)
+				event.Action = &action
+			}
+		}
+
+		return &event, nil
+	}
 }
 
-func (e *Event) Transform(tctx *transform.Context) []beat.Event {
+func (e *Event) Transform(config transform.Config, sourcemapStore *sourcemap.Store) []beat.Event {
 	transformations.Inc()
 	if frames := len(e.Stacktrace); frames > 0 {
 		stacktraceCounter.Inc()
@@ -363,11 +378,11 @@ func (e *Event) Transform(tctx *transform.Context) []beat.Event {
 
 	fields := common.MapStr{
 		"processor": processorEntry,
-		spanDocType: e.fields(tctx),
+		spanDocType: e.fields(config, sourcemapStore),
 	}
 
 	// first set the generic metadata
-	tctx.Metadata.SetMinimal(fields)
+	e.Metadata.SetMinimal(fields)
 
 	// then add event specific information
 	utility.DeepUpdate(fields, "service", e.Service.MinimalFields())
@@ -380,27 +395,17 @@ func (e *Event) Transform(tctx *transform.Context) []beat.Event {
 	utility.Set(fields, "experimental", e.Experimental)
 	utility.Set(fields, "destination", e.Destination.fields())
 
-	timestamp := e.Timestamp
-	if timestamp.IsZero() {
-		timestamp = tctx.RequestTime
-	}
-
-	// adjust timestamp to be reqTime + start
-	if e.Timestamp.IsZero() && e.Start != nil {
-		timestamp = tctx.RequestTime.Add(time.Duration(float64(time.Millisecond) * *e.Start))
-	}
-
-	utility.Set(fields, "timestamp", utility.TimeAsMicros(timestamp))
+	utility.Set(fields, "timestamp", utility.TimeAsMicros(e.Timestamp))
 
 	return []beat.Event{
 		{
 			Fields:    fields,
-			Timestamp: timestamp,
+			Timestamp: e.Timestamp,
 		},
 	}
 }
 
-func (e *Event) fields(tctx *transform.Context) common.MapStr {
+func (e *Event) fields(config transform.Config, sourcemapStore *sourcemap.Store) common.MapStr {
 	if e == nil {
 		return nil
 	}
@@ -428,7 +433,7 @@ func (e *Event) fields(tctx *transform.Context) common.MapStr {
 
 	utility.Set(fields, "message", e.Message.Fields())
 
-	st := e.Stacktrace.Transform(tctx)
+	st := e.Stacktrace.Transform(config, sourcemapStore, e.Metadata.Service)
 	utility.Set(fields, "stacktrace", st)
 	return fields
 }

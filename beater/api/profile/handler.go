@@ -94,11 +94,7 @@ func Handler(
 			}
 		}
 
-		tctx := &transform.Context{
-			RequestTime: utility.RequestTime(c.Request.Context()),
-			Config:      transformConfig,
-		}
-
+		var meta *metadata.Metadata
 		var totalLimitRemaining int64 = profileContentLengthLimit
 		var profiles []*pprof_profile.Profile
 		mr, err := c.Request.MultipartReader()
@@ -144,14 +140,13 @@ func Handler(
 						err: errors.Wrap(err, "invalid metadata"),
 					}
 				}
-				metadata, err := metadata.DecodeMetadata(raw)
+				meta, err = metadata.DecodeMetadata(raw)
 				if err != nil {
 					return nil, requestError{
 						id:  request.IDResponseErrorsDecode,
 						err: errors.Wrap(err, "failed to decode metadata"),
 					}
 				}
-				tctx.Metadata = *metadata
 
 			case "profile":
 				params, err := validateContentType(http.Header(part.Header), pprofMediaType)
@@ -191,12 +186,11 @@ func Handler(
 
 		transformables := make([]transform.Transformable, len(profiles))
 		for i, p := range profiles {
-			transformables[i] = profile.PprofProfile{Profile: p}
+			transformables[i] = profile.PprofProfile{Profile: p, Metadata: *meta}
 		}
 
 		if err := report(c.Request.Context(), publish.PendingReq{
 			Transformables: transformables,
-			Tcontext:       tctx,
 		}); err != nil {
 			switch err {
 			case publish.ErrChannelClosed:

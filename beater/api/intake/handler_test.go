@@ -185,9 +185,9 @@ func (tc *testcaseIntakeHandler) setup(t *testing.T) {
 	if tc.processor == nil {
 		cfg := config.DefaultConfig("7.0.0")
 		tc.processor = &stream.Processor{
-			Tconfig:      transform.Config{},
-			Mconfig:      model.Config{Experimental: cfg.Mode == config.ModeExperimental},
-			MaxEventSize: cfg.MaxEventSize,
+			TransformConfig: transform.Config{},
+			Mconfig:         model.Config{Experimental: cfg.Mode == config.ModeExperimental},
+			MaxEventSize:    cfg.MaxEventSize,
 		}
 	}
 	if tc.reporter == nil {

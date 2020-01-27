@@ -104,7 +104,7 @@ func DecodeStacktraceFrame(input interface{}, err error) (*StacktraceFrame, erro
 	return &frame, decoder.Err
 }
 
-func (s *StacktraceFrame) Transform(tctx *transform.Context) common.MapStr {
+func (s *StacktraceFrame) transform(config transform.Config) common.MapStr {
 	m := common.MapStr{}
 	utility.Set(m, "filename", s.Filename)
 	utility.Set(m, "classname", s.Classname)
@@ -112,13 +112,13 @@ func (s *StacktraceFrame) Transform(tctx *transform.Context) common.MapStr {
 	utility.Set(m, "module", s.Module)
 	utility.Set(m, "function", s.Function)
 	utility.Set(m, "vars", s.Vars)
-	if tctx.Config.LibraryPattern != nil {
-		s.setLibraryFrame(tctx.Config.LibraryPattern)
+	if config.LibraryPattern != nil {
+		s.setLibraryFrame(config.LibraryPattern)
 	}
 	utility.Set(m, "library_frame", s.LibraryFrame)
 
-	if tctx.Config.ExcludeFromGrouping != nil {
-		s.setExcludeFromGrouping(tctx.Config.ExcludeFromGrouping)
+	if config.ExcludeFromGrouping != nil {
+		s.setExcludeFromGrouping(config.ExcludeFromGrouping)
 	}
 	utility.Set(m, "exclude_from_grouping", s.ExcludeFromGrouping)
 
