@@ -162,9 +162,9 @@ func DecodeSourcemapFormData(req *http.Request) (map[string]interface{}, error) 
 	return payload, nil
 }
 
-func DecodeUserData(decoder ReqDecoder, enabled bool) ReqDecoder {
+func DecodeUserData(enabled bool) ReqDecoder {
 	if !enabled {
-		return decoder
+		return nil
 	}
 
 	dec := utility.ManualDecoder{}
@@ -177,7 +177,7 @@ func DecodeUserData(decoder ReqDecoder, enabled bool) ReqDecoder {
 		}
 		return m
 	}
-	return augmentData(decoder, "user", augment)
+	return augmentData(nil, "user", augment)
 }
 
 func DecodeSystemData(decoder ReqDecoder, enabled bool) ReqDecoder {
@@ -196,9 +196,13 @@ func DecodeSystemData(decoder ReqDecoder, enabled bool) ReqDecoder {
 
 func augmentData(decoder ReqDecoder, key string, augment func(req *http.Request) map[string]interface{}) ReqDecoder {
 	return func(req *http.Request) (map[string]interface{}, error) {
-		v, err := decoder(req)
-		if err != nil {
-			return v, err
+		v := map[string]interface{}{}
+		if decoder != nil {
+			var err error
+			v, err = decoder(req)
+			if err != nil {
+				return v, err
+			}
 		}
 		utility.InsertInMap(v, key, augment(req))
 		return v, nil

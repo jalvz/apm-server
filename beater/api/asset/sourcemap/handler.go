@@ -28,6 +28,7 @@ import (
 	"github.com/elastic/apm-server/decoder"
 	"github.com/elastic/apm-server/processor/asset/sourcemap"
 	"github.com/elastic/apm-server/publish"
+	sourcemap2 "github.com/elastic/apm-server/sourcemap"
 )
 
 var (
@@ -37,7 +38,7 @@ var (
 )
 
 // Handler returns a request.Handler for managing asset requests.
-func Handler(dec decoder.ReqDecoder, report publish.Reporter) request.Handler {
+func Handler(dec decoder.ReqDecoder, sourcemapStore *sourcemap2.Store, report publish.Reporter) request.Handler {
 	return func(c *request.Context) {
 		if c.Request.Method != "POST" {
 			c.Result.SetDefault(request.IDResponseErrorsMethodNotAllowed)
@@ -62,7 +63,7 @@ func Handler(dec decoder.ReqDecoder, report publish.Reporter) request.Handler {
 			return
 		}
 
-		transformables, err := sourcemap.Processor.Decode(data)
+		transformables, err := sourcemap.Processor.Decode(data, sourcemapStore)
 		if err != nil {
 			c.Result.SetWithError(request.IDResponseErrorsDecode, err)
 			c.Write()

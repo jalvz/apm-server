@@ -25,15 +25,14 @@ import (
 	"sync"
 	"time"
 
-	"github.com/santhosh-tekuri/jsonschema"
 	"golang.org/x/time/rate"
 
 	"go.elastic.co/apm"
 
 	"github.com/elastic/apm-server/decoder"
+	"github.com/elastic/apm-server/model"
 	"github.com/elastic/apm-server/model/metadata"
 	"github.com/elastic/apm-server/publish"
-	"github.com/elastic/apm-server/transform"
 	"github.com/elastic/apm-server/utility"
 	"github.com/elastic/apm-server/validation"
 )
@@ -76,14 +75,8 @@ func (s *srErrorWrapper) Read() (map[string]interface{}, error) {
 	return v, err
 }
 
-type EventModel struct {
-	Name   string
-	Schema *jsonschema.Schema
-	Decode func(interface{}, time.Time, metadata.Metadata) (transform.Transformable, error)
-}
-
 type Processor struct {
-	Models       []EventModel
+	Decoders     map[string]model.Decoder
 	MaxEventSize int
 	bufferPool   sync.Pool
 }
@@ -136,20 +129,11 @@ func readMetadata(reqMeta map[string]interface{}, reader StreamReader) (*metadat
 	return metadata, nil
 }
 
-// HandleRawModel validates and decodes a single json object into its struct form
-func HandleRawModel(rawModel map[string]interface{}, models []EventModel, requestTime time.Time, metadata metadata.Metadata) (transform.Transformable, error) {
-	for _, model := range models {
-		if entry, ok := rawModel[model.Name]; ok {
-			err := validation.Validate(entry, model.Schema)
-			if err != nil {
-				return nil, err
-			}
-
-			tr, err := model.Decode(entry, requestTime, metadata)
-			if err != nil {
-				return nil, err
-			}
-			return tr, nil
+// handleRawModel validates and decodes a single json object into its struct form
+func handleRawModel(rawModel map[string]interface{}, models map[string]model.Decoder, requestTime time.Time, metadata metadata.Metadata) (model.Transformable, error) {
+	for name, m := range models {
+		if entry, ok := rawModel[name]; ok {
+			return m.Decode(entry, requestTime, metadata)
 		}
 	}
 	return nil, ErrUnrecognizedObject
@@ -157,11 +141,11 @@ func HandleRawModel(rawModel map[string]interface{}, models []EventModel, reques
 
 // readBatch will read up to `batchSize` objects from the ndjson stream
 // it returns a slice of eventables and a bool that indicates if there might be more to read.
-func readBatch(ctx context.Context, ipRateLimiter *rate.Limiter, batchSize int, models []EventModel, metadata metadata.Metadata, reader StreamReader, response *Result) ([]transform.Transformable, bool) {
+func readBatch(ctx context.Context, ipRateLimiter *rate.Limiter, batchSize int, models map[string]model.Decoder, metadata metadata.Metadata, reader StreamReader, response *Result) ([]model.Transformable, bool) {
 	var (
 		err        error
 		rawModel   map[string]interface{}
-		eventables []transform.Transformable
+		eventables []model.Transformable
 	)
 
 	if ipRateLimiter != nil {
@@ -194,7 +178,7 @@ func readBatch(ctx context.Context, ipRateLimiter *rate.Limiter, batchSize int, 
 		}
 
 		if rawModel != nil {
-			tr, err := HandleRawModel(rawModel, models, requestTime, metadata)
+			evt, err := handleRawModel(rawModel, models, requestTime, metadata)
 			if err != nil {
 				response.LimitedAdd(&Error{
 					Type:     InvalidInputErrType,
@@ -203,7 +187,7 @@ func readBatch(ctx context.Context, ipRateLimiter *rate.Limiter, batchSize int, 
 				})
 				continue
 			}
-			eventables = append(eventables, tr)
+			eventables = append(eventables, evt)
 		}
 	}
 
@@ -242,7 +226,7 @@ func (p *Processor) HandleStream(ctx context.Context, ipRateLimiter *rate.Limite
 	defer sp.End()
 
 	for {
-		transformables, done := readBatch(ctx, ipRateLimiter, batchSize, p.Models, *metadata, jsonReader, res)
+		transformables, done := readBatch(ctx, ipRateLimiter, batchSize, p.Decoders, *metadata, jsonReader, res)
 		if transformables != nil {
 			err := report(ctx, publish.PendingReq{
 				Transformables: transformables,

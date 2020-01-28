@@ -22,11 +22,12 @@ import (
 	"github.com/pkg/errors"
 	"github.com/santhosh-tekuri/jsonschema"
 
+	"github.com/elastic/apm-server/model"
+	"github.com/elastic/apm-server/sourcemap"
+
 	"github.com/elastic/beats/libbeat/monitoring"
 
-	"github.com/elastic/apm-server/decoder"
 	sm "github.com/elastic/apm-server/model/sourcemap"
-	"github.com/elastic/apm-server/transform"
 	"github.com/elastic/apm-server/validation"
 )
 
@@ -44,7 +45,6 @@ var (
 
 type sourcemapProcessor struct {
 	PayloadKey    string
-	EventDecoder  decoder.EventDecoder
 	PayloadSchema *jsonschema.Schema
 	DecodingCount *monitoring.Int
 	DecodingError *monitoring.Int
@@ -56,15 +56,15 @@ func (p *sourcemapProcessor) Name() string {
 	return eventName
 }
 
-func (p *sourcemapProcessor) Decode(raw map[string]interface{}) ([]transform.Transformable, error) {
+func (p *sourcemapProcessor) Decode(raw map[string]interface{}, sourcemapStore *sourcemap.Store) ([]model.Transformable, error) {
 	p.DecodingCount.Inc()
-	transformable, err := sm.DecodeSourcemap(raw)
+	transformable, err := sm.DecodeSourcemap(raw, sourcemapStore)
 	if err != nil {
 		p.DecodingError.Inc()
 		return nil, err
 	}
 
-	return []transform.Transformable{transformable}, err
+	return []model.Transformable{transformable}, err
 }
 
 func (p *sourcemapProcessor) Validate(raw map[string]interface{}) error {

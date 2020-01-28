@@ -21,13 +21,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/elastic/apm-server/model/metadata"
-	"github.com/elastic/apm-server/sourcemap"
-
 	"github.com/OneOfOne/xxhash"
 	"github.com/google/pprof/profile"
 
-	"github.com/elastic/apm-server/transform"
+	"github.com/elastic/apm-server/model/metadata"
 	"github.com/elastic/apm-server/utility"
 	"github.com/elastic/beats/libbeat/beat"
 	"github.com/elastic/beats/libbeat/common"
@@ -50,7 +47,7 @@ type PprofProfile struct {
 }
 
 // Transform transforms a Profile into a sequence of beat.Events: one per profile sample.
-func (pp PprofProfile) Transform(_ transform.Config, _ *sourcemap.Store) []beat.Event {
+func (pp PprofProfile) Transform() []beat.Event {
 	// Precompute value field names for use in each event.
 	// TODO(axw) limit to well-known value names?
 	profileTimestamp := time.Unix(0, pp.Profile.TimeNanos)

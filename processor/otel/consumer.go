@@ -41,7 +41,6 @@ import (
 	"github.com/elastic/apm-server/model/span"
 	"github.com/elastic/apm-server/model/transaction"
 	"github.com/elastic/apm-server/publish"
-	"github.com/elastic/apm-server/transform"
 	"github.com/elastic/apm-server/utility"
 )
 
@@ -55,8 +54,7 @@ const (
 
 // Consumer transforms open-telemetry data to be compatible with elastic APM data
 type Consumer struct {
-	TransformConfig transform.Config
-	Reporter        publish.Reporter
+	Reporter publish.Reporter
 }
 
 // ConsumeTraceData consumes OpenTelemetry trace data,
@@ -71,7 +69,7 @@ func (c *Consumer) ConsumeTraceData(ctx context.Context, td consumerdata.TraceDa
 	})
 }
 
-func (c *Consumer) convert(td consumerdata.TraceData) []transform.Transformable {
+func (c *Consumer) convert(td consumerdata.TraceData) []model.Transformable {
 	md := metadata.Metadata{}
 	parseMetadata(td, &md)
 	var hostname string
@@ -80,7 +78,7 @@ func (c *Consumer) convert(td consumerdata.TraceData) []transform.Transformable 
 	}
 
 	logger := logp.NewLogger(logs.Otel)
-	transformables := make([]transform.Transformable, 0, len(td.Spans))
+	transformables := make([]model.Transformable, 0, len(td.Spans))
 	for _, otelSpan := range td.Spans {
 		if otelSpan == nil {
 			continue

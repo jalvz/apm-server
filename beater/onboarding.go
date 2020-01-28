@@ -21,22 +21,20 @@ import (
 	"context"
 	"time"
 
-	"github.com/elastic/apm-server/sourcemap"
-
 	"github.com/elastic/beats/libbeat/beat"
 	"github.com/elastic/beats/libbeat/common"
 	"github.com/elastic/beats/libbeat/logp"
 
 	"github.com/elastic/apm-server/beater/config"
 	logs "github.com/elastic/apm-server/log"
+	"github.com/elastic/apm-server/model"
 	"github.com/elastic/apm-server/publish"
-	"github.com/elastic/apm-server/transform"
 )
 
 func notifyListening(ctx context.Context, config *config.Config, reporter publish.Reporter) {
 	logp.NewLogger(logs.Onboarding).Info("Publishing onboarding document")
 	reporter(ctx, publish.PendingReq{
-		Transformables: []transform.Transformable{onboardingDoc{listenAddr: config.Host}},
+		Transformables: []model.Transformable{onboardingDoc{listenAddr: config.Host}},
 	})
 }
 
@@ -44,7 +42,7 @@ type onboardingDoc struct {
 	listenAddr string
 }
 
-func (o onboardingDoc) Transform(_ transform.Config, _ *sourcemap.Store) []beat.Event {
+func (o onboardingDoc) Transform() []beat.Event {
 	return []beat.Event{{
 		Timestamp: time.Now(),
 		Fields: common.MapStr{

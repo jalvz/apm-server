@@ -21,6 +21,8 @@ import (
 	"expvar"
 	"net/http"
 
+	"github.com/elastic/apm-server/model"
+
 	"github.com/elastic/apm-server/model/metricset"
 	"github.com/elastic/apm-server/model/span"
 	"github.com/elastic/apm-server/model/transaction"
@@ -43,7 +45,6 @@ import (
 	apmerror "github.com/elastic/apm-server/model/error"
 	"github.com/elastic/apm-server/processor/stream"
 	"github.com/elastic/apm-server/publish"
-	"github.com/elastic/apm-server/transform"
 )
 
 const (
@@ -67,10 +68,6 @@ const (
 	AgentConfigRUMPath = "/config/v1/rum/agents"
 	// IntakeRUMPath defines the path to ingest monitored RUM events
 	IntakeRUMPath = "/intake/v2/rum/events"
-)
-
-var (
-	emptyDecoder = func(*http.Request) (map[string]interface{}, error) { return map[string]interface{}{}, nil }
 )
 
 type route struct {
@@ -125,20 +122,20 @@ func NewMux(beaterConfig *config.Config, report publish.Reporter) (*http.ServeMu
 }
 
 func profileHandler(cfg *config.Config, builder *authorization.Builder, reporter publish.Reporter) (request.Handler, error) {
-	h := profile.Handler(systemMetadataDecoder(cfg, emptyDecoder), transform.Config{}, reporter)
+	h := profile.Handler(systemMetadataDecoder(cfg, nil), reporter)
 	authHandler := builder.ForPrivilege(authorization.PrivilegeEventWrite.Action)
 	return middleware.Wrap(h, backendMiddleware(cfg, authHandler, profile.MonitoringMap)...)
 }
 
 func backendIntakeHandler(cfg *config.Config, builder *authorization.Builder, reporter publish.Reporter) (request.Handler, error) {
 	experimental := cfg.Mode == config.ModeExperimental
-	h := intake.Handler(systemMetadataDecoder(cfg, emptyDecoder),
+	h := intake.Handler(systemMetadataDecoder(cfg, nil),
 		&stream.Processor{
-			Models: []stream.EventModel{
-				transaction.EventModel(experimental),
-				span.EventModel(experimental),
-				apmerror.EventModel(experimental),
-				metricset.EventModel(),
+			Decoders: map[string]model.Decoder{
+				"transaction": transaction.Decoder(experimental),
+				"span":        span.Decoder(experimental),
+				"error":       apmerror.Decoder(experimental),
+				"metricset":   metricset.Decoder(),
 			},
 			MaxEventSize: cfg.MaxEventSize,
 		},
@@ -149,23 +146,32 @@ func backendIntakeHandler(cfg *config.Config, builder *authorization.Builder, re
 
 func rumIntakeHandler(cfg *config.Config, _ *authorization.Builder, reporter publish.Reporter) (request.Handler, error) {
 	experimental := cfg.Mode == config.ModeExperimental
-	h := intake.Handler(userMetaDataDecoder(cfg, emptyDecoder),
+	sourcemapStore, err := cfg.RumConfig.MemoizedSourcemapStore()
+	if err != nil {
+		return nil, err
+	}
+	rum := cfg.RumConfig
+	h := intake.Handler(userMetaDataDecoder(cfg),
 		&stream.Processor{
-			MaxEventSize: cfg.MaxEventSize,
-			Models: []stream.EventModel{
-				transaction.EventModel(experimental),
-				span.EventModel(experimental),
-				apmerror.EventModel(experimental),
-				// TODO not for RUM?
-				metricset.EventModel(),
+			Decoders: map[string]model.Decoder{
+				"transaction": transaction.Decoder(experimental),
+				"span":        span.RUMDecoder(experimental, rum.LibraryPattern, rum.ExcludeFromGrouping, sourcemapStore),
+				"error":       apmerror.RUMDecoder(experimental, rum.LibraryPattern, rum.ExcludeFromGrouping, sourcemapStore),
+				// todo not for RUM
+				"metricset": metricset.Decoder(),
 			},
+			MaxEventSize: cfg.MaxEventSize,
 		},
 		reporter)
 	return middleware.Wrap(h, rumMiddleware(cfg, nil, intake.MonitoringMap)...)
 }
 
 func sourcemapHandler(cfg *config.Config, builder *authorization.Builder, reporter publish.Reporter) (request.Handler, error) {
-	h := sourcemap.Handler(systemMetadataDecoder(cfg, decoder.DecodeSourcemapFormData), reporter)
+	sourcemapStore, err := cfg.RumConfig.MemoizedSourcemapStore()
+	if err != nil {
+		return nil, err
+	}
+	h := sourcemap.Handler(systemMetadataDecoder(cfg, decoder.DecodeSourcemapFormData), sourcemapStore, reporter)
 	authHandler := builder.ForPrivilege(authorization.PrivilegeSourcemapWrite.Action)
 	return middleware.Wrap(h, sourcemapMiddleware(cfg, authHandler)...)
 }
@@ -243,6 +249,6 @@ func systemMetadataDecoder(beaterConfig *config.Config, d decoder.ReqDecoder) de
 	return decoder.DecodeSystemData(d, beaterConfig.AugmentEnabled)
 }
 
-func userMetaDataDecoder(beaterConfig *config.Config, d decoder.ReqDecoder) decoder.ReqDecoder {
-	return decoder.DecodeUserData(d, beaterConfig.AugmentEnabled)
+func userMetaDataDecoder(beaterConfig *config.Config) decoder.ReqDecoder {
+	return decoder.DecodeUserData(beaterConfig.AugmentEnabled)
 }

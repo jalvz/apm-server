@@ -19,6 +19,7 @@ package model
 
 import (
 	"errors"
+	"regexp"
 
 	"github.com/elastic/apm-server/model/metadata"
 	"github.com/elastic/apm-server/sourcemap"
@@ -27,8 +28,6 @@ import (
 	"github.com/elastic/beats/libbeat/logp"
 
 	logs "github.com/elastic/apm-server/log"
-
-	"github.com/elastic/apm-server/transform"
 )
 
 var (
@@ -53,7 +52,7 @@ func DecodeStacktrace(input interface{}, err error) (*Stacktrace, error) {
 	return &st, err
 }
 
-func (st *Stacktrace) Transform(config transform.Config, sourcemapStore *sourcemap.Store, service *metadata.Service) []common.MapStr {
+func (st *Stacktrace) Transform(libraryPattern, excludeFromGrouping *regexp.Regexp, sourcemapStore *sourcemap.Store, service *metadata.Service) []common.MapStr {
 	if st == nil {
 		return nil
 	}
@@ -75,19 +74,19 @@ func (st *Stacktrace) Transform(config transform.Config, sourcemapStore *sourcem
 	// - sourcmeap.updated is set to true
 
 	if sourcemapStore == nil {
-		return st.transform(config, noSourcemapping)
+		return st.transform(libraryPattern, excludeFromGrouping, noSourcemapping)
 	}
 	// service comes from metadata, not from the event
 	if service == nil || service.Name == nil || service.Version == nil {
 		logp.NewLogger(logs.Stacktrace).Warn(msgServiceInvalidForSourcemapping)
-		return st.transform(config, noSourcemapping)
+		return st.transform(libraryPattern, excludeFromGrouping, noSourcemapping)
 	}
 
 	var errMsg string
 	var sourcemapErrorSet = map[string]interface{}{}
 	logger := logp.NewLogger(logs.Stacktrace)
 	fct := "<anonymous>"
-	return st.transform(config, func(frame *StacktraceFrame) {
+	return st.transform(libraryPattern, excludeFromGrouping, func(frame *StacktraceFrame) {
 		fct, errMsg = frame.applySourcemap(sourcemapStore, service, fct)
 		if errMsg != "" {
 			if _, ok := sourcemapErrorSet[errMsg]; !ok {
@@ -98,7 +97,7 @@ func (st *Stacktrace) Transform(config transform.Config, sourcemapStore *sourcem
 	})
 }
 
-func (st *Stacktrace) transform(config transform.Config, apply func(*StacktraceFrame)) []common.MapStr {
+func (st *Stacktrace) transform(libraryPattern, excludeFromGrouping *regexp.Regexp, apply func(*StacktraceFrame)) []common.MapStr {
 	frameCount := len(*st)
 	if frameCount == 0 {
 		return nil
@@ -109,7 +108,7 @@ func (st *Stacktrace) transform(config transform.Config, apply func(*StacktraceF
 	for idx := frameCount - 1; idx >= 0; idx-- {
 		fr = (*st)[idx]
 		apply(fr)
-		frames[idx] = fr.transform(config)
+		frames[idx] = fr.transform(libraryPattern, excludeFromGrouping)
 	}
 	return frames
 }

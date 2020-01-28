@@ -21,10 +21,7 @@ import (
 	"errors"
 	"net"
 	"net/url"
-	"regexp"
 	"sync"
-
-	"github.com/elastic/apm-server/transform"
 
 	"go.elastic.co/apm"
 
@@ -168,16 +165,7 @@ func (bt *beater) Run(b *beat.Beat) error {
 		}()
 	}
 	defer tracer.Close()
-	transformConfig := transform.Config{
-		LibraryPattern:      regexp.MustCompile(bt.config.RumConfig.LibraryPattern),
-		ExcludeFromGrouping: regexp.MustCompile(bt.config.RumConfig.ExcludeFromGrouping),
-	}
-	// TODO it doesn't need to be memoized anymore
-	sourcemapStore, err := bt.config.RumConfig.MemoizedSourcemapStore()
-	if err != nil {
-		return err
-	}
-	pub, err := publish.NewPublisher(b.Publisher, tracer, transformConfig, sourcemapStore, &publish.PublisherConfig{
+	pub, err := publish.NewPublisher(b.Publisher, tracer, &publish.PublisherConfig{
 		Info: b.Info, ShutdownTimeout: bt.config.ShutdownTimeout, Pipeline: bt.config.Pipeline,
 	})
 	if err != nil {

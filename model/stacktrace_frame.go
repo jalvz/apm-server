@@ -27,7 +27,6 @@ import (
 
 	"github.com/elastic/apm-server/model/metadata"
 	"github.com/elastic/apm-server/sourcemap"
-	"github.com/elastic/apm-server/transform"
 	"github.com/elastic/apm-server/utility"
 )
 
@@ -104,7 +103,7 @@ func DecodeStacktraceFrame(input interface{}, err error) (*StacktraceFrame, erro
 	return &frame, decoder.Err
 }
 
-func (s *StacktraceFrame) transform(config transform.Config) common.MapStr {
+func (s *StacktraceFrame) transform(libraryPattern, excludeFromGrouping *regexp.Regexp) common.MapStr {
 	m := common.MapStr{}
 	utility.Set(m, "filename", s.Filename)
 	utility.Set(m, "classname", s.Classname)
@@ -112,13 +111,13 @@ func (s *StacktraceFrame) transform(config transform.Config) common.MapStr {
 	utility.Set(m, "module", s.Module)
 	utility.Set(m, "function", s.Function)
 	utility.Set(m, "vars", s.Vars)
-	if config.LibraryPattern != nil {
-		s.setLibraryFrame(config.LibraryPattern)
+	if libraryPattern != nil {
+		s.setLibraryFrame(libraryPattern)
 	}
 	utility.Set(m, "library_frame", s.LibraryFrame)
 
-	if config.ExcludeFromGrouping != nil {
-		s.setExcludeFromGrouping(config.ExcludeFromGrouping)
+	if excludeFromGrouping != nil {
+		s.setExcludeFromGrouping(excludeFromGrouping)
 	}
 	utility.Set(m, "exclude_from_grouping", s.ExcludeFromGrouping)
 

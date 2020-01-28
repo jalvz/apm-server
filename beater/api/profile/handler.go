@@ -31,10 +31,10 @@ import (
 	"github.com/elastic/apm-server/beater/headers"
 	"github.com/elastic/apm-server/beater/request"
 	"github.com/elastic/apm-server/decoder"
+	"github.com/elastic/apm-server/model"
 	"github.com/elastic/apm-server/model/metadata"
 	"github.com/elastic/apm-server/model/profile"
 	"github.com/elastic/apm-server/publish"
-	"github.com/elastic/apm-server/transform"
 	"github.com/elastic/apm-server/utility"
 	"github.com/elastic/apm-server/validation"
 )
@@ -58,11 +58,7 @@ const (
 )
 
 // Handler returns a request.Handler for managing profile requests.
-func Handler(
-	dec decoder.ReqDecoder,
-	transformConfig transform.Config,
-	report publish.Reporter,
-) request.Handler {
+func Handler(dec decoder.ReqDecoder, report publish.Reporter) request.Handler {
 	handle := func(c *request.Context) (*result, error) {
 		if c.Request.Method != http.MethodPost {
 			return nil, requestError{
@@ -184,7 +180,7 @@ func Handler(
 			}
 		}
 
-		transformables := make([]transform.Transformable, len(profiles))
+		transformables := make([]model.Transformable, len(profiles))
 		for i, p := range profiles {
 			transformables[i] = profile.PprofProfile{Profile: p, Metadata: *meta}
 		}

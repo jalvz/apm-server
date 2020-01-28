@@ -15,8 +15,20 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package decoder
+package model
 
-import "github.com/elastic/apm-server/transform"
+import (
+	"time"
 
-type EventDecoder func(input interface{}, err error) (transform.Transformable, error)
+	"github.com/elastic/beats/libbeat/beat"
+
+	"github.com/elastic/apm-server/model/metadata"
+)
+
+type Decoder interface {
+	Decode(interface{}, time.Time, metadata.Metadata) (Transformable, error)
+}
+
+type Transformable interface {
+	Transform() []beat.Event
+}

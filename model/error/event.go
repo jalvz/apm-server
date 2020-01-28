@@ -25,10 +25,10 @@ import (
 	"fmt"
 	"hash"
 	"io"
+	"regexp"
 	"strconv"
 	"time"
 
-	"github.com/elastic/apm-server/processor/stream"
 	"github.com/elastic/apm-server/sourcemap"
 
 	"github.com/elastic/beats/libbeat/beat"
@@ -38,7 +38,6 @@ import (
 	m "github.com/elastic/apm-server/model"
 	"github.com/elastic/apm-server/model/error/generated/schema"
 	"github.com/elastic/apm-server/model/metadata"
-	"github.com/elastic/apm-server/transform"
 	"github.com/elastic/apm-server/utility"
 	"github.com/elastic/apm-server/validation"
 )
@@ -49,9 +48,7 @@ var (
 	stacktraceCounter = monitoring.NewInt(Metrics, "stacktraces")
 	frameCounter      = monitoring.NewInt(Metrics, "frames")
 	processorEntry    = common.MapStr{"name": processorName, "event": errorDocType}
-
-	errMissingInput = errors.New("input missing for decoding error event")
-	errInvalidType  = errors.New("invalid type for error event")
+	errInvalidType    = errors.New("invalid type for error event")
 )
 
 const (
@@ -62,11 +59,25 @@ const (
 
 var cachedModelSchema = validation.CreateSchema(schema.ModelSchema, processorName)
 
-func EventModel(experimental bool) stream.EventModel {
-	return stream.EventModel{
-		Name:   "error",
-		Schema: cachedModelSchema,
-		Decode: EventDecoder(experimental),
+type decoder struct {
+	experimental        bool
+	libraryPattern      *regexp.Regexp
+	excludeFromGrouping *regexp.Regexp
+	sourcemapStore      *sourcemap.Store
+}
+
+func Decoder(experimental bool) m.Decoder {
+	return decoder{
+		experimental: experimental,
+	}
+}
+
+func RUMDecoder(experimental bool, libraryPattern, excludeFromGrouping string, sourcemapStore *sourcemap.Store) m.Decoder {
+	return decoder{
+		experimental:        experimental,
+		libraryPattern:      regexp.MustCompile(libraryPattern),
+		excludeFromGrouping: regexp.MustCompile(excludeFromGrouping),
+		sourcemapStore:      sourcemapStore,
 	}
 }
 
@@ -98,6 +109,8 @@ type Event struct {
 	data         common.MapStr
 
 	Metadata metadata.Metadata
+
+	decoder decoder
 }
 
 type Exception struct {
@@ -120,73 +133,72 @@ type Log struct {
 	Stacktrace   m.Stacktrace
 }
 
-func EventDecoder(experimental bool) func(interface{}, time.Time, metadata.Metadata) (transform.Transformable, error) {
-	return func(input interface{}, requestTime time.Time, metadata metadata.Metadata) (transform.Transformable, error) {
-		if input == nil {
-			return nil, errMissingInput
-		}
-
-		raw, ok := input.(map[string]interface{})
-		if !ok {
-			return nil, errInvalidType
-		}
-
-		ctx, err := m.DecodeContext(raw, experimental, nil)
-		if err != nil {
-			return nil, err
-		}
-		decoder := utility.ManualDecoder{}
-		e := Event{
-			Id:                 decoder.StringPtr(raw, "id"),
-			Culprit:            decoder.StringPtr(raw, "culprit"),
-			Labels:             ctx.Labels,
-			Page:               ctx.Page,
-			Http:               ctx.Http,
-			Url:                ctx.Url,
-			Custom:             ctx.Custom,
-			User:               ctx.User,
-			Service:            ctx.Service,
-			Experimental:       ctx.Experimental,
-			Client:             ctx.Client,
-			Timestamp:          decoder.TimeEpochMicro(raw, "timestamp"),
-			TransactionId:      decoder.StringPtr(raw, "transaction_id"),
-			ParentId:           decoder.StringPtr(raw, "parent_id"),
-			TraceId:            decoder.StringPtr(raw, "trace_id"),
-			TransactionSampled: decoder.BoolPtr(raw, "sampled", "transaction"),
-			TransactionType:    decoder.StringPtr(raw, "type", "transaction"),
-			Metadata:           metadata,
-		}
-		if e.Timestamp.IsZero() {
-			e.Timestamp = requestTime
-		}
-
-		ex := decoder.MapStr(raw, "exception")
-		e.Exception = decodeException(&decoder)(ex)
-
-		log := decoder.MapStr(raw, "log")
-		logMsg := decoder.StringPtr(log, "message")
-		if logMsg != nil {
-			e.Log = &Log{
-				Message:      *logMsg,
-				ParamMessage: decoder.StringPtr(log, "param_message"),
-				Level:        decoder.StringPtr(log, "level"),
-				LoggerName:   decoder.StringPtr(log, "logger_name"),
-				Stacktrace:   m.Stacktrace{},
-			}
-			var stacktrace *m.Stacktrace
-			stacktrace, decoder.Err = m.DecodeStacktrace(log["stacktrace"], decoder.Err)
-			if stacktrace != nil {
-				e.Log.Stacktrace = *stacktrace
-			}
-		}
-		if decoder.Err != nil {
-			return nil, decoder.Err
-		}
-		return &e, nil
+func (d decoder) Decode(input interface{}, requestTime time.Time, metadata metadata.Metadata) (m.Transformable, error) {
+	raw, ok := input.(map[string]interface{})
+	if !ok {
+		return nil, errInvalidType
 	}
+	err := validation.Validate(input, cachedModelSchema)
+	if err != nil {
+		return nil, err
+	}
+
+	ctx, err := m.DecodeContext(raw, d.experimental, nil)
+	if err != nil {
+		return nil, err
+	}
+	decoder := utility.ManualDecoder{}
+	e := Event{
+		Id:                 decoder.StringPtr(raw, "id"),
+		Culprit:            decoder.StringPtr(raw, "culprit"),
+		Labels:             ctx.Labels,
+		Page:               ctx.Page,
+		Http:               ctx.Http,
+		Url:                ctx.Url,
+		Custom:             ctx.Custom,
+		User:               ctx.User,
+		Service:            ctx.Service,
+		Experimental:       ctx.Experimental,
+		Client:             ctx.Client,
+		Timestamp:          decoder.TimeEpochMicro(raw, "timestamp"),
+		TransactionId:      decoder.StringPtr(raw, "transaction_id"),
+		ParentId:           decoder.StringPtr(raw, "parent_id"),
+		TraceId:            decoder.StringPtr(raw, "trace_id"),
+		TransactionSampled: decoder.BoolPtr(raw, "sampled", "transaction"),
+		TransactionType:    decoder.StringPtr(raw, "type", "transaction"),
+		Metadata:           metadata,
+		decoder:            d,
+	}
+	if e.Timestamp.IsZero() {
+		e.Timestamp = requestTime
+	}
+
+	ex := decoder.MapStr(raw, "exception")
+	e.Exception = decodeException(&decoder)(ex)
+
+	log := decoder.MapStr(raw, "log")
+	logMsg := decoder.StringPtr(log, "message")
+	if logMsg != nil {
+		e.Log = &Log{
+			Message:      *logMsg,
+			ParamMessage: decoder.StringPtr(log, "param_message"),
+			Level:        decoder.StringPtr(log, "level"),
+			LoggerName:   decoder.StringPtr(log, "logger_name"),
+			Stacktrace:   m.Stacktrace{},
+		}
+		var stacktrace *m.Stacktrace
+		stacktrace, decoder.Err = m.DecodeStacktrace(log["stacktrace"], decoder.Err)
+		if stacktrace != nil {
+			e.Log.Stacktrace = *stacktrace
+		}
+	}
+	if decoder.Err != nil {
+		return nil, decoder.Err
+	}
+	return &e, nil
 }
 
-func (e *Event) Transform(config transform.Config, sourcemapStore *sourcemap.Store) []beat.Event {
+func (e *Event) Transform() []beat.Event {
 	transformations.Inc()
 
 	if e.Exception != nil {
@@ -197,7 +209,7 @@ func (e *Event) Transform(config transform.Config, sourcemapStore *sourcemap.Sto
 	}
 
 	fields := common.MapStr{
-		"error":     e.fields(config, sourcemapStore),
+		"error":     e.fields(e.decoder.libraryPattern, e.decoder.excludeFromGrouping, e.decoder.sourcemapStore),
 		"processor": processorEntry,
 	}
 
@@ -240,14 +252,14 @@ func (e *Event) Transform(config transform.Config, sourcemapStore *sourcemap.Sto
 	}
 }
 
-func (e *Event) fields(config transform.Config, sourcemapStore *sourcemap.Store) common.MapStr {
+func (e *Event) fields(libraryPattern, excludeFromGrouping *regexp.Regexp, sourcemapStore *sourcemap.Store) common.MapStr {
 	e.data = common.MapStr{}
 	e.add("id", e.Id)
 	e.add("page", e.Page.Fields())
 
 	exceptionChain := flattenExceptionTree(e.Exception)
-	e.addException(config, sourcemapStore, exceptionChain)
-	e.addLog(config, sourcemapStore)
+	e.addException(libraryPattern, excludeFromGrouping, sourcemapStore, exceptionChain)
+	e.addLog(libraryPattern, excludeFromGrouping, sourcemapStore)
 	// TODO is this needed?
 	if sourcemapStore != nil {
 		e.updateCulprit()
@@ -292,7 +304,7 @@ func findSmappedNonLibraryFrame(frames []*m.StacktraceFrame) *m.StacktraceFrame 
 	return nil
 }
 
-func (e *Event) addException(config transform.Config, sourcemapStore *sourcemap.Store, chain []Exception) {
+func (e *Event) addException(libraryPattern, excludeFromGrouping *regexp.Regexp, sourcemapStore *sourcemap.Store, chain []Exception) {
 	var result []common.MapStr
 	for _, exception := range chain {
 		ex := common.MapStr{}
@@ -314,7 +326,7 @@ func (e *Event) addException(config transform.Config, sourcemapStore *sourcemap.
 			utility.Set(ex, "code", code.String())
 		}
 
-		st := exception.Stacktrace.Transform(config, sourcemapStore, e.Metadata.Service)
+		st := exception.Stacktrace.Transform(libraryPattern, excludeFromGrouping, sourcemapStore, e.Metadata.Service)
 		utility.Set(ex, "stacktrace", st)
 
 		result = append(result, ex)
@@ -323,7 +335,7 @@ func (e *Event) addException(config transform.Config, sourcemapStore *sourcemap.
 	e.add("exception", result)
 }
 
-func (e *Event) addLog(config transform.Config, sourcemapStore *sourcemap.Store) {
+func (e *Event) addLog(libraryPattern, excludeFromGrouping *regexp.Regexp, sourcemapStore *sourcemap.Store) {
 	if e.Log == nil {
 		return
 	}
@@ -332,7 +344,7 @@ func (e *Event) addLog(config transform.Config, sourcemapStore *sourcemap.Store)
 	utility.Set(log, "param_message", e.Log.ParamMessage)
 	utility.Set(log, "logger_name", e.Log.LoggerName)
 	utility.Set(log, "level", e.Log.Level)
-	st := e.Log.Stacktrace.Transform(config, sourcemapStore, e.Metadata.Service)
+	st := e.Log.Stacktrace.Transform(libraryPattern, excludeFromGrouping, sourcemapStore, e.Metadata.Service)
 	utility.Set(log, "stacktrace", st)
 
 	e.add("log", log)

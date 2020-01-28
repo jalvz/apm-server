@@ -22,20 +22,15 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/elastic/apm-server/model/metadata"
-	"github.com/elastic/apm-server/processor/stream"
-	"github.com/elastic/apm-server/sourcemap"
-
-	"github.com/santhosh-tekuri/jsonschema"
-
 	"github.com/elastic/beats/libbeat/beat"
 	"github.com/elastic/beats/libbeat/common"
 	"github.com/elastic/beats/libbeat/logp"
 	"github.com/elastic/beats/libbeat/monitoring"
 
 	logs "github.com/elastic/apm-server/log"
+	"github.com/elastic/apm-server/model"
+	"github.com/elastic/apm-server/model/metadata"
 	"github.com/elastic/apm-server/model/metricset/generated/schema"
-	"github.com/elastic/apm-server/transform"
 	"github.com/elastic/apm-server/utility"
 	"github.com/elastic/apm-server/validation"
 )
@@ -55,16 +50,10 @@ var (
 
 var cachedModelSchema = validation.CreateSchema(schema.ModelSchema, "metricset")
 
-func ModelSchema() *jsonschema.Schema {
-	return cachedModelSchema
-}
+type decoder struct{}
 
-func EventModel() stream.EventModel {
-	return stream.EventModel{
-		Name:   "metricset",
-		Schema: ModelSchema(),
-		Decode: DecodeEvent,
-	}
+func Decoder() model.Decoder {
+	return decoder{}
 }
 
 type Sample struct {
@@ -97,13 +86,14 @@ type metricsetDecoder struct {
 	*utility.ManualDecoder
 }
 
-func DecodeEvent(input interface{}, requestTime time.Time, metadata metadata.Metadata) (transform.Transformable, error) {
-	if input == nil {
-		return nil, errors.New("no data for metric event")
-	}
+func (d decoder) Decode(input interface{}, requestTime time.Time, metadata metadata.Metadata) (model.Transformable, error) {
 	raw, ok := input.(map[string]interface{})
 	if !ok {
 		return nil, errors.New("invalid type for metric event")
+	}
+	err := validation.Validate(input, cachedModelSchema)
+	if err != nil {
+		return nil, err
 	}
 
 	md := metricsetDecoder{&utility.ManualDecoder{}}
@@ -215,14 +205,14 @@ func (t *Transaction) fields() common.MapStr {
 	return fields
 }
 
-func (me *Metricset) Transform(_ transform.Config, _ *sourcemap.Store) []beat.Event {
+func (m *Metricset) Transform() []beat.Event {
 	transformations.Inc()
-	if me == nil {
+	if m == nil {
 		return nil
 	}
 
 	fields := common.MapStr{}
-	for _, sample := range me.Samples {
+	for _, sample := range m.Samples {
 		if _, err := fields.Put(sample.Name, sample.Value); err != nil {
 			logp.NewLogger(logs.Transform).Warnf("failed to transform sample %#v", sample)
 			continue
@@ -230,17 +220,17 @@ func (me *Metricset) Transform(_ transform.Config, _ *sourcemap.Store) []beat.Ev
 	}
 
 	fields["processor"] = processorEntry
-	me.Metadata.Set(fields)
+	m.Metadata.Set(fields)
 
 	// merges with metadata labels, overrides conflicting keys
-	utility.DeepUpdate(fields, "labels", me.Labels)
-	utility.DeepUpdate(fields, transactionKey, me.Transaction.fields())
-	utility.DeepUpdate(fields, spanKey, me.Span.fields())
+	utility.DeepUpdate(fields, "labels", m.Labels)
+	utility.DeepUpdate(fields, transactionKey, m.Transaction.fields())
+	utility.DeepUpdate(fields, spanKey, m.Span.fields())
 
 	return []beat.Event{
 		{
 			Fields:    fields,
-			Timestamp: me.Timestamp,
+			Timestamp: m.Timestamp,
 		},
 	}
 }
