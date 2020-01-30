@@ -20,6 +20,7 @@ package sourcemap
 import (
 	"context"
 	"fmt"
+	"github.com/elastic/apm-server/tests/loader"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -30,10 +31,7 @@ import (
 	"github.com/elastic/apm-server/beater/beatertest"
 	"github.com/elastic/apm-server/beater/request"
 	"github.com/elastic/apm-server/decoder"
-	"github.com/elastic/apm-server/model/metadata"
-	"github.com/elastic/apm-server/processor/asset"
 	"github.com/elastic/apm-server/publish"
-	"github.com/elastic/apm-server/transform"
 )
 
 func TestAssetHandler(t *testing.T) {
@@ -63,14 +61,14 @@ func TestAssetHandler(t *testing.T) {
 		"validate": {
 			dec:  func(req *http.Request) (map[string]interface{}, error) { return nil, nil },
 			code: http.StatusBadRequest,
-			body: beatertest.ResultErrWrap(fmt.Sprintf("%s: no input", request.MapResultIDToStatus[request.IDResponseErrorsValidate].Keyword)),
+			body: "{\"error\":\"data validation error: missing properties: \\\"sourcemap\\\", expected sourcemap to be sent as string, but got null\"}\n",
 		},
 		"processorDecode": {
 			dec: func(*http.Request) (map[string]interface{}, error) {
-				return map[string]interface{}{"mockProcessor": "xyz"}, nil
+				return map[string]interface{}{"sourcemap": "xyz"}, nil
 			},
 			code: http.StatusBadRequest,
-			body: beatertest.ResultErrWrap(fmt.Sprintf("%s: processor decode error", request.MapResultIDToStatus[request.IDResponseErrorsDecode].Keyword)),
+			body: "{\"error\":\"data validation error: error validating sourcemap: invalid character 'x' looking for beginning of value\"}\n",
 		},
 		"shuttingDown": {
 			reporter: func(ctx context.Context, p publish.PendingReq) error {
@@ -108,7 +106,6 @@ type testcaseT struct {
 	w         *httptest.ResponseRecorder
 	r         *http.Request
 	dec       decoder.ReqDecoder
-	processor asset.Processor
 	reporter  func(ctx context.Context, p publish.PendingReq) error
 
 	code int
@@ -122,37 +119,25 @@ func (tc *testcaseT) setup() {
 	if tc.r == nil {
 		tc.r = httptest.NewRequest(http.MethodPost, "/", nil)
 	}
+	sourcemap, _ := loader.LoadDataAsBytes("../testdata/sourcemap/bundle.js.map")
+
 	if tc.dec == nil {
 		tc.dec = func(*http.Request) (map[string]interface{}, error) {
-			return map[string]interface{}{"foo": "bar"}, nil
+			return map[string]interface{}{
+				"sourcemap": string(sourcemap),
+				"bundle_filepath": "path",
+				"service_name": "service",
+				"service_version": "2",
+			}, nil
 		}
 	}
-	if tc.processor == nil {
-		tc.processor = &mockProcessor{}
-	}
+
 	if tc.reporter == nil {
 		tc.reporter = beatertest.NilReporter
 	}
 	c := &request.Context{}
 	c.Reset(tc.w, tc.r)
-	h := Handler(tc.dec, tc.processor, transform.Config{}, tc.reporter)
+	h := Handler(tc.dec, nil, tc.reporter)
 	h(c)
 }
 
-type mockProcessor struct{}
-
-func (p *mockProcessor) Validate(m map[string]interface{}) error {
-	if m == nil {
-		return errors.New("no input")
-	}
-	return nil
-}
-func (p *mockProcessor) Decode(m map[string]interface{}) (*metadata.Metadata, []transform.Transformable, error) {
-	if _, ok := m["mockProcessor"]; ok {
-		return nil, nil, errors.New("processor decode error")
-	}
-	return &metadata.Metadata{}, nil, nil
-}
-func (p *mockProcessor) Name() string {
-	return "mockProcessor"
-}
