@@ -76,7 +76,7 @@ func (s *srErrorWrapper) Read() (map[string]interface{}, error) {
 }
 
 type Processor struct {
-	Decoders     map[string]model.Decoder
+	Decoders     map[string]model.EventDecoder
 	MaxEventSize int
 	bufferPool   sync.Pool
 }
@@ -130,10 +130,10 @@ func readMetadata(reqMeta map[string]interface{}, reader StreamReader) (*metadat
 }
 
 // handleRawModel validates and decodes a single json object into its struct form
-func handleRawModel(rawModel map[string]interface{}, models map[string]model.Decoder, requestTime time.Time, metadata metadata.Metadata) (model.Transformable, error) {
-	for name, m := range models {
+func handleRawModel(rawModel map[string]interface{}, decoders map[string]model.EventDecoder, requestTime time.Time, metadata metadata.Metadata) (model.Transformable, error) {
+	for name, decode := range decoders {
 		if entry, ok := rawModel[name]; ok {
-			return m.Decode(entry, requestTime, metadata)
+			return decode(entry, requestTime, metadata)
 		}
 	}
 	return nil, ErrUnrecognizedObject
@@ -141,11 +141,11 @@ func handleRawModel(rawModel map[string]interface{}, models map[string]model.Dec
 
 // readBatch will read up to `batchSize` objects from the ndjson stream
 // it returns a slice of eventables and a bool that indicates if there might be more to read.
-func readBatch(ctx context.Context, ipRateLimiter *rate.Limiter, batchSize int, models map[string]model.Decoder, metadata metadata.Metadata, reader StreamReader, response *Result) ([]model.Transformable, bool) {
+func readBatch(ctx context.Context, ipRateLimiter *rate.Limiter, batchSize int, decoders map[string]model.EventDecoder, metadata metadata.Metadata, reader StreamReader, response *Result) ([]model.Transformable, bool) {
 	var (
-		err        error
-		rawModel   map[string]interface{}
-		eventables []model.Transformable
+		err      error
+		rawModel map[string]interface{}
+		events   []model.Transformable
 	)
 
 	if ipRateLimiter != nil {
@@ -158,7 +158,7 @@ func readBatch(ctx context.Context, ipRateLimiter *rate.Limiter, batchSize int, 
 				Type:    RateLimitErrType,
 				Message: "rate limit exceeded",
 			})
-			return eventables, true
+			return events, true
 		}
 	}
 
@@ -174,11 +174,11 @@ func readBatch(ctx context.Context, ipRateLimiter *rate.Limiter, batchSize int, 
 			}
 			// return early, we assume we can only recover from a input error types
 			response.Add(err)
-			return eventables, true
+			return events, true
 		}
 
 		if rawModel != nil {
-			evt, err := handleRawModel(rawModel, models, requestTime, metadata)
+			evt, err := handleRawModel(rawModel, decoders, requestTime, metadata)
 			if err != nil {
 				response.LimitedAdd(&Error{
 					Type:     InvalidInputErrType,
@@ -187,11 +187,11 @@ func readBatch(ctx context.Context, ipRateLimiter *rate.Limiter, batchSize int, 
 				})
 				continue
 			}
-			eventables = append(eventables, evt)
+			events = append(events, evt)
 		}
 	}
 
-	return eventables, reader.IsEOF()
+	return events, reader.IsEOF()
 }
 
 // HandleStream processes a stream of events

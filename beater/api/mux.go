@@ -131,11 +131,11 @@ func backendIntakeHandler(cfg *config.Config, builder *authorization.Builder, re
 	experimental := cfg.Mode == config.ModeExperimental
 	h := intake.Handler(systemMetadataDecoder(cfg, nil),
 		&stream.Processor{
-			Decoders: map[string]model.Decoder{
+			Decoders: map[string]model.EventDecoder{
 				"transaction": transaction.Decoder(experimental),
 				"span":        span.Decoder(experimental),
 				"error":       apmerror.Decoder(experimental),
-				"metricset":   metricset.Decoder(),
+				"metricset":   metricset.Decode,
 			},
 			MaxEventSize: cfg.MaxEventSize,
 		},
@@ -146,19 +146,14 @@ func backendIntakeHandler(cfg *config.Config, builder *authorization.Builder, re
 
 func rumIntakeHandler(cfg *config.Config, _ *authorization.Builder, reporter publish.Reporter) (request.Handler, error) {
 	experimental := cfg.Mode == config.ModeExperimental
-	sourcemapStore, err := cfg.RumConfig.MemoizedSourcemapStore()
-	if err != nil {
-		return nil, err
-	}
-	rum := cfg.RumConfig
 	h := intake.Handler(userMetaDataDecoder(cfg),
 		&stream.Processor{
-			Decoders: map[string]model.Decoder{
+			Decoders: map[string]model.EventDecoder{
 				"transaction": transaction.Decoder(experimental),
-				"span":        span.RUMDecoder(experimental, rum.LibraryPattern, rum.ExcludeFromGrouping, sourcemapStore),
-				"error":       apmerror.RUMDecoder(experimental, rum.LibraryPattern, rum.ExcludeFromGrouping, sourcemapStore),
+				"span":        span.Decoder(experimental),
+				"error":       apmerror.Decoder(experimental),
 				// todo not for RUM
-				"metricset": metricset.Decoder(),
+				"metricset": metricset.Decode,
 			},
 			MaxEventSize: cfg.MaxEventSize,
 		},

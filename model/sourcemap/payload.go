@@ -62,6 +62,8 @@ type Sourcemap struct {
 	sourcemapStore *sourcemap.Store
 }
 
+func (_ Sourcemap) APMEvent() {}
+
 func (pa *Sourcemap) Transform() []beat.Event {
 	sourcemapCounter.Inc()
 	if pa == nil {

@@ -50,12 +50,6 @@ var (
 
 var cachedModelSchema = validation.CreateSchema(schema.ModelSchema, "metricset")
 
-type decoder struct{}
-
-func Decoder() model.Decoder {
-	return decoder{}
-}
-
 type Sample struct {
 	Name  string
 	Value float64
@@ -82,11 +76,13 @@ type Metricset struct {
 	Metadata    metadata.Metadata
 }
 
+func (_ Metricset) APMEvent() {}
+
 type metricsetDecoder struct {
 	*utility.ManualDecoder
 }
 
-func (d decoder) Decode(input interface{}, requestTime time.Time, metadata metadata.Metadata) (model.Transformable, error) {
+func Decode(input interface{}, requestTime time.Time, metadata metadata.Metadata) (model.Transformable, error) {
 	raw, ok := input.(map[string]interface{})
 	if !ok {
 		return nil, errors.New("invalid type for metric event")

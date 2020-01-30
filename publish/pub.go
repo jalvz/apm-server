@@ -23,6 +23,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/elastic/apm-server/beater/config"
+	"github.com/elastic/apm-server/model/converter"
+
 	"github.com/pkg/errors"
 	"go.elastic.co/apm"
 
@@ -46,19 +49,12 @@ type Publisher struct {
 	client          beat.Client
 	m               sync.RWMutex
 	stopped         bool
+	converter       converter.EventConverter
 }
 
 type PendingReq struct {
 	Transformables []model.Transformable
 	Trace          bool
-}
-
-// PublisherConfig is a struct holding configuration information for the publisher,
-// such as shutdown timeout, default pipeline name and beat info.
-type PublisherConfig struct {
-	Info            beat.Info
-	ShutdownTimeout time.Duration
-	Pipeline        string
 }
 
 var (
@@ -69,16 +65,16 @@ var (
 // newPublisher creates a new publisher instance.
 //MaxCPU new go-routines are started for forwarding events to libbeat.
 //Stop must be called to close the beat.Client and free resources.
-func NewPublisher(pipeline beat.Pipeline, tracer *apm.Tracer, cfg *PublisherConfig) (*Publisher, error) {
+func NewPublisher(pipeline beat.Pipeline, tracer *apm.Tracer, cfg *config.Config, info beat.Info) (*Publisher, error) {
 	processingCfg := beat.ProcessingConfig{
 		Fields: common.MapStr{
 			"observer": common.MapStr{
-				"type":          cfg.Info.Beat,
-				"hostname":      cfg.Info.Hostname,
-				"version":       cfg.Info.Version,
+				"type":          info.Beat,
+				"hostname":      info.Hostname,
+				"version":       info.Version,
 				"version_major": 8,
-				"id":            cfg.Info.ID.String(),
-				"ephemeral_id":  cfg.Info.EphemeralID.String(),
+				"id":            info.ID.String(),
+				"ephemeral_id":  info.EphemeralID.String(),
 			},
 		},
 	}
@@ -95,10 +91,16 @@ func NewPublisher(pipeline beat.Pipeline, tracer *apm.Tracer, cfg *PublisherConf
 		return nil, err
 	}
 
-	p := &Publisher{
-		tracer: tracer,
-		client: client,
+	// TODO doesn't need to be memoized anymore
+	sourcemapStore, err := cfg.RumConfig.MemoizedSourcemapStore()
+	if err != nil {
+		return nil, err
+	}
 
+	p := &Publisher{
+		tracer:    tracer,
+		client:    client,
+		converter: converter.NewConverter(cfg.RumConfig.LibraryPattern, cfg.RumConfig.ExcludeFromGrouping, sourcemapStore),
 		// One request will be actively processed by the
 		// worker, while the other concurrent requests will be buffered in the queue.
 		pendingRequests: make(chan PendingReq, runtime.GOMAXPROCS(0)),
@@ -162,7 +164,7 @@ func (p *Publisher) processPendingReq(req PendingReq) {
 
 	for _, transformable := range req.Transformables {
 		span := tx.StartSpan("transform", "Publisher", nil)
-		events := transformable.Transform()
+		events := p.converter.ToBeatEvents(transformable)
 		span.End()
 
 		span = tx.StartSpan("PublishAll", "Publisher", nil)

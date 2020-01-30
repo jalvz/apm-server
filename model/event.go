@@ -20,15 +20,11 @@ package model
 import (
 	"time"
 
-	"github.com/elastic/beats/libbeat/beat"
-
 	"github.com/elastic/apm-server/model/metadata"
 )
 
-type Decoder interface {
-	Decode(interface{}, time.Time, metadata.Metadata) (Transformable, error)
-}
+type EventDecoder func(input interface{}, requestTime time.Time, metadata metadata.Metadata) (Transformable, error)
 
 type Transformable interface {
-	Transform() []beat.Event
+	APMEvent()
 }

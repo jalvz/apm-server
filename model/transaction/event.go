@@ -47,16 +47,6 @@ var (
 	errInvalidType    = errors.New("invalid type for transaction event")
 )
 
-type decoder struct {
-	experimental bool
-}
-
-func Decoder(experimental bool) m.Decoder {
-	return decoder{
-		experimental: experimental,
-	}
-}
-
 type Event struct {
 	Id       string
 	ParentId *string
@@ -86,60 +76,64 @@ type Event struct {
 	Metadata metadata.Metadata
 }
 
+func (_ Event) APMEvent() {}
+
 type SpanCount struct {
 	Dropped *int
 	Started *int
 }
 
-func (d decoder) Decode(input interface{}, requestTime time.Time, metadata metadata.Metadata) (m.Transformable, error) {
-	raw, ok := input.(map[string]interface{})
-	if !ok {
-		return nil, errInvalidType
-	}
-	err := validation.Validate(input, cachedModelSchema)
-	if err != nil {
-		return nil, err
-	}
+func Decoder(experimental bool) m.EventDecoder {
+	return func(input interface{}, requestTime time.Time, metadata metadata.Metadata) (m.Transformable, error) {
+		raw, ok := input.(map[string]interface{})
+		if !ok {
+			return nil, errInvalidType
+		}
+		err := validation.Validate(input, cachedModelSchema)
+		if err != nil {
+			return nil, err
+		}
 
-	ctx, err := m.DecodeContext(raw, d.experimental, nil)
-	if err != nil {
-		return nil, err
-	}
-	decoder := utility.ManualDecoder{}
-	e := Event{
-		Id:           decoder.String(raw, "id"),
-		Type:         decoder.String(raw, "type"),
-		Name:         decoder.StringPtr(raw, "name"),
-		Result:       decoder.StringPtr(raw, "result"),
-		Duration:     decoder.Float64(raw, "duration"),
-		Labels:       ctx.Labels,
-		Page:         ctx.Page,
-		Http:         ctx.Http,
-		Url:          ctx.Url,
-		Custom:       ctx.Custom,
-		User:         ctx.User,
-		Service:      ctx.Service,
-		Client:       ctx.Client,
-		Experimental: ctx.Experimental,
-		Message:      ctx.Message,
-		Sampled:      decoder.BoolPtr(raw, "sampled"),
-		Marks:        decoder.MapStr(raw, "marks"),
-		Timestamp:    decoder.TimeEpochMicro(raw, "timestamp"),
-		SpanCount: SpanCount{
-			Dropped: decoder.IntPtr(raw, "dropped", "span_count"),
-			Started: decoder.IntPtr(raw, "started", "span_count")},
-		ParentId: decoder.StringPtr(raw, "parent_id"),
-		TraceId:  decoder.String(raw, "trace_id"),
-		Metadata: metadata,
-	}
-	if e.Timestamp.IsZero() {
-		e.Timestamp = requestTime
-	}
+		ctx, err := m.DecodeContext(raw, experimental, nil)
+		if err != nil {
+			return nil, err
+		}
+		decoder := utility.ManualDecoder{}
+		e := Event{
+			Id:           decoder.String(raw, "id"),
+			Type:         decoder.String(raw, "type"),
+			Name:         decoder.StringPtr(raw, "name"),
+			Result:       decoder.StringPtr(raw, "result"),
+			Duration:     decoder.Float64(raw, "duration"),
+			Labels:       ctx.Labels,
+			Page:         ctx.Page,
+			Http:         ctx.Http,
+			Url:          ctx.Url,
+			Custom:       ctx.Custom,
+			User:         ctx.User,
+			Service:      ctx.Service,
+			Client:       ctx.Client,
+			Experimental: ctx.Experimental,
+			Message:      ctx.Message,
+			Sampled:      decoder.BoolPtr(raw, "sampled"),
+			Marks:        decoder.MapStr(raw, "marks"),
+			Timestamp:    decoder.TimeEpochMicro(raw, "timestamp"),
+			SpanCount: SpanCount{
+				Dropped: decoder.IntPtr(raw, "dropped", "span_count"),
+				Started: decoder.IntPtr(raw, "started", "span_count")},
+			ParentId: decoder.StringPtr(raw, "parent_id"),
+			TraceId:  decoder.String(raw, "trace_id"),
+			Metadata: metadata,
+		}
+		if e.Timestamp.IsZero() {
+			e.Timestamp = requestTime
+		}
 
-	if decoder.Err != nil {
-		return nil, decoder.Err
+		if decoder.Err != nil {
+			return nil, decoder.Err
+		}
+		return &e, nil
 	}
-	return &e, nil
 }
 
 func (e *Event) fields() common.MapStr {

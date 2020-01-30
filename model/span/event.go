@@ -55,28 +55,6 @@ var (
 	errInvalidType = errors.New("invalid type for span event")
 )
 
-type decoder struct {
-	experimental        bool
-	libraryPattern      *regexp.Regexp
-	excludeFromGrouping *regexp.Regexp
-	sourcemapStore      *sourcemap.Store
-}
-
-func Decoder(experimental bool) m.Decoder {
-	return decoder{
-		experimental: experimental,
-	}
-}
-
-func RUMDecoder(experimental bool, libraryPattern, excludeFromGrouping string, sourcemapStore *sourcemap.Store) m.Decoder {
-	return decoder{
-		experimental:        experimental,
-		libraryPattern:      regexp.MustCompile(libraryPattern),
-		excludeFromGrouping: regexp.MustCompile(excludeFromGrouping),
-		sourcemapStore:      sourcemapStore,
-	}
-}
-
 type Event struct {
 	Id            string
 	TransactionId *string
@@ -105,9 +83,9 @@ type Event struct {
 
 	Experimental interface{}
 	Metadata     metadata.Metadata
-
-	decoder decoder
 }
+
+func (_ Event) APMEvent() {}
 
 // DB contains information related to a database query of a span event
 type DB struct {
@@ -277,113 +255,114 @@ func (d *DestinationService) fields() common.MapStr {
 	return fields
 }
 
-func (d decoder) Decode(input interface{}, requestTime time.Time, meta metadata.Metadata) (m.Transformable, error) {
-	raw, ok := input.(map[string]interface{})
-	if !ok {
-		return nil, errInvalidType
-	}
-	err := validation.Validate(input, cachedModelSchema)
-	if err != nil {
-		return nil, err
-	}
-
-	decoder := utility.ManualDecoder{}
-	event := Event{
-		Name:          decoder.String(raw, "name"),
-		Start:         decoder.Float64Ptr(raw, "start"),
-		Duration:      decoder.Float64(raw, "duration"),
-		Sync:          decoder.BoolPtr(raw, "sync"),
-		Timestamp:     decoder.TimeEpochMicro(raw, "timestamp"),
-		Id:            decoder.String(raw, "id"),
-		ParentId:      decoder.String(raw, "parent_id"),
-		TraceId:       decoder.String(raw, "trace_id"),
-		TransactionId: decoder.StringPtr(raw, "transaction_id"),
-		Type:          decoder.String(raw, "type"),
-		Subtype:       decoder.StringPtr(raw, "subtype"),
-		Action:        decoder.StringPtr(raw, "action"),
-		Metadata:      meta,
-		decoder:       d,
-	}
-
-	if event.Timestamp.IsZero() {
-		event.Timestamp = requestTime
-	}
-
-	// adjust timestamp to be reqTime + start
-	if event.Timestamp.IsZero() && event.Start != nil {
-		event.Timestamp = requestTime.Add(time.Duration(float64(time.Millisecond) * *event.Start))
-	}
-
-	ctx := decoder.MapStr(raw, "context")
-	if ctx != nil {
-		if labels, ok := ctx["tags"].(map[string]interface{}); ok {
-			event.Labels = labels
+func Decoder(experimental bool) m.EventDecoder {
+	return func(input interface{}, requestTime time.Time, meta metadata.Metadata) (m.Transformable, error) {
+		raw, ok := input.(map[string]interface{})
+		if !ok {
+			return nil, errInvalidType
 		}
-
-		db, err := decodeDB(ctx, decoder.Err)
+		err := validation.Validate(input, cachedModelSchema)
 		if err != nil {
 			return nil, err
 		}
-		event.DB = db
 
-		http, err := decodeHTTP(ctx, decoder.Err)
-		if err != nil {
-			return nil, err
+		decoder := utility.ManualDecoder{}
+		event := Event{
+			Name:          decoder.String(raw, "name"),
+			Start:         decoder.Float64Ptr(raw, "start"),
+			Duration:      decoder.Float64(raw, "duration"),
+			Sync:          decoder.BoolPtr(raw, "sync"),
+			Timestamp:     decoder.TimeEpochMicro(raw, "timestamp"),
+			Id:            decoder.String(raw, "id"),
+			ParentId:      decoder.String(raw, "parent_id"),
+			TraceId:       decoder.String(raw, "trace_id"),
+			TransactionId: decoder.StringPtr(raw, "transaction_id"),
+			Type:          decoder.String(raw, "type"),
+			Subtype:       decoder.StringPtr(raw, "subtype"),
+			Action:        decoder.StringPtr(raw, "action"),
+			Metadata:      meta,
 		}
-		event.HTTP = http
 
-		dest, destService, err := decodeDestination(ctx, decoder.Err)
-		if err != nil {
-			return nil, err
+		if event.Timestamp.IsZero() {
+			event.Timestamp = requestTime
 		}
-		event.Destination = dest
-		event.DestinationService = destService
 
-		if s, set := ctx["service"]; set {
-			service, err := metadata.DecodeService(s, decoder.Err)
+		// adjust timestamp to be reqTime + start
+		if event.Timestamp.IsZero() && event.Start != nil {
+			event.Timestamp = requestTime.Add(time.Duration(float64(time.Millisecond) * *event.Start))
+		}
+
+		ctx := decoder.MapStr(raw, "context")
+		if ctx != nil {
+			if labels, ok := ctx["tags"].(map[string]interface{}); ok {
+				event.Labels = labels
+			}
+
+			db, err := decodeDB(ctx, decoder.Err)
 			if err != nil {
 				return nil, err
 			}
-			event.Service = service
-		}
+			event.DB = db
 
-		if event.Message, err = m.DecodeMessage(ctx, decoder.Err); err != nil {
-			return nil, err
-		}
+			http, err := decodeHTTP(ctx, decoder.Err)
+			if err != nil {
+				return nil, err
+			}
+			event.HTTP = http
 
-		if d.experimental {
-			if obj, set := ctx["experimental"]; set {
-				event.Experimental = obj
+			dest, destService, err := decodeDestination(ctx, decoder.Err)
+			if err != nil {
+				return nil, err
+			}
+			event.Destination = dest
+			event.DestinationService = destService
+
+			if s, set := ctx["service"]; set {
+				service, err := metadata.DecodeService(s, decoder.Err)
+				if err != nil {
+					return nil, err
+				}
+				event.Service = service
+			}
+
+			if event.Message, err = m.DecodeMessage(ctx, decoder.Err); err != nil {
+				return nil, err
+			}
+
+			if experimental {
+				if obj, set := ctx["experimental"]; set {
+					event.Experimental = obj
+				}
 			}
 		}
-	}
 
-	var stacktr *m.Stacktrace
-	stacktr, decoder.Err = m.DecodeStacktrace(raw["stacktrace"], decoder.Err)
-	if decoder.Err != nil {
-		return nil, decoder.Err
-	}
-	if stacktr != nil {
-		event.Stacktrace = *stacktr
-	}
-
-	if event.Subtype == nil && event.Action == nil {
-		sep := "."
-		t := strings.Split(event.Type, sep)
-		event.Type = t[0]
-		if len(t) > 1 {
-			event.Subtype = &t[1]
+		var stacktr *m.Stacktrace
+		stacktr, decoder.Err = m.DecodeStacktrace(raw["stacktrace"], decoder.Err)
+		if decoder.Err != nil {
+			return nil, decoder.Err
 		}
-		if len(t) > 2 {
-			action := strings.Join(t[2:], sep)
-			event.Action = &action
+		if stacktr != nil {
+			event.Stacktrace = *stacktr
 		}
-	}
 
-	return &event, nil
+		if event.Subtype == nil && event.Action == nil {
+			sep := "."
+			t := strings.Split(event.Type, sep)
+			event.Type = t[0]
+			if len(t) > 1 {
+				event.Subtype = &t[1]
+			}
+			if len(t) > 2 {
+				action := strings.Join(t[2:], sep)
+				event.Action = &action
+			}
+		}
+
+		return &event, nil
+	}
 }
 
-func (e *Event) Transform() []beat.Event {
+func (e *Event) Transform(libraryPattern, excludeFromGrouping *regexp.Regexp, sourcemapStore *sourcemap.Store) []beat.Event {
 	transformations.Inc()
 	if frames := len(e.Stacktrace); frames > 0 {
 		stacktraceCounter.Inc()
@@ -392,7 +371,7 @@ func (e *Event) Transform() []beat.Event {
 
 	fields := common.MapStr{
 		"processor": processorEntry,
-		spanDocType: e.fields(e.decoder.libraryPattern, e.decoder.excludeFromGrouping, e.decoder.sourcemapStore),
+		spanDocType: e.fields(libraryPattern, excludeFromGrouping, sourcemapStore),
 	}
 
 	// first set the generic metadata

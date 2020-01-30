@@ -46,6 +46,8 @@ type PprofProfile struct {
 	Metadata metadata.Metadata
 }
 
+func (_ PprofProfile) APMEvent() {}
+
 // Transform transforms a Profile into a sequence of beat.Events: one per profile sample.
 func (pp PprofProfile) Transform() []beat.Event {
 	// Precompute value field names for use in each event.
