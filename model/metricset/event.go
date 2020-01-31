@@ -28,7 +28,6 @@ import (
 	"github.com/elastic/beats/libbeat/monitoring"
 
 	logs "github.com/elastic/apm-server/log"
-	"github.com/elastic/apm-server/model"
 	"github.com/elastic/apm-server/model/metadata"
 	"github.com/elastic/apm-server/model/metricset/generated/schema"
 	"github.com/elastic/apm-server/utility"
@@ -76,13 +75,11 @@ type Metricset struct {
 	Metadata    metadata.Metadata
 }
 
-func (_ Metricset) APMEvent() {}
-
 type metricsetDecoder struct {
 	*utility.ManualDecoder
 }
 
-func Decode(input interface{}, requestTime time.Time, metadata metadata.Metadata) (model.Transformable, error) {
+func Decode(input interface{}, requestTime time.Time, metadata metadata.Metadata) (*Metricset, error) {
 	raw, ok := input.(map[string]interface{})
 	if !ok {
 		return nil, errors.New("invalid type for metric event")

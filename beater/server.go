@@ -26,7 +26,6 @@ import (
 	"time"
 
 	logs "github.com/elastic/apm-server/log"
-	"github.com/elastic/apm-server/model"
 	"github.com/elastic/apm-server/model/onboarding"
 
 	"go.elastic.co/apm"
@@ -105,7 +104,7 @@ func (s server) stop() {
 func notifyListening(ctx context.Context, config *config.Config, reporter publish.Reporter) {
 	logp.NewLogger(logs.Onboarding).Info("Publishing onboarding document")
 	reporter(ctx, publish.PendingReq{
-		Transformables: []model.Transformable{onboarding.OnboardingDoc{ListenAddr: config.Host}},
+		Transformables: []publish.Transformable{onboarding.OnboardingDoc{ListenAddr: config.Host}},
 	})
 }
 

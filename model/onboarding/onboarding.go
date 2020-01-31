@@ -28,8 +28,6 @@ type OnboardingDoc struct {
 	ListenAddr string
 }
 
-func (_ OnboardingDoc) APMEvent() {}
-
 func (o OnboardingDoc) Transform() []beat.Event {
 	return []beat.Event{{
 		Timestamp: time.Now(),

@@ -30,7 +30,6 @@ import (
 	"go.elastic.co/apm"
 
 	"github.com/elastic/apm-server/decoder"
-	"github.com/elastic/apm-server/model"
 	"github.com/elastic/apm-server/model/metadata"
 	"github.com/elastic/apm-server/publish"
 	"github.com/elastic/apm-server/utility"
@@ -76,7 +75,7 @@ func (s *srErrorWrapper) Read() (map[string]interface{}, error) {
 }
 
 type Processor struct {
-	Decoders     map[string]model.EventDecoder
+	Decoders     map[string]Decoder
 	MaxEventSize int
 	bufferPool   sync.Pool
 }
@@ -130,10 +129,10 @@ func readMetadata(reqMeta map[string]interface{}, reader StreamReader) (*metadat
 }
 
 // handleRawModel validates and decodes a single json object into its struct form
-func handleRawModel(rawModel map[string]interface{}, decoders map[string]model.EventDecoder, requestTime time.Time, metadata metadata.Metadata) (model.Transformable, error) {
-	for name, decode := range decoders {
+func handleRawModel(rawModel map[string]interface{}, decoders map[string]Decoder, requestTime time.Time, metadata metadata.Metadata) (publish.Transformable, error) {
+	for name, decoder := range decoders {
 		if entry, ok := rawModel[name]; ok {
-			return decode(entry, requestTime, metadata)
+			return decoder.Decode(entry, requestTime, metadata)
 		}
 	}
 	return nil, ErrUnrecognizedObject
@@ -141,11 +140,11 @@ func handleRawModel(rawModel map[string]interface{}, decoders map[string]model.E
 
 // readBatch will read up to `batchSize` objects from the ndjson stream
 // it returns a slice of eventables and a bool that indicates if there might be more to read.
-func readBatch(ctx context.Context, ipRateLimiter *rate.Limiter, batchSize int, decoders map[string]model.EventDecoder, metadata metadata.Metadata, reader StreamReader, response *Result) ([]model.Transformable, bool) {
+func readBatch(ctx context.Context, ipRateLimiter *rate.Limiter, batchSize int, decoders map[string]Decoder, metadata metadata.Metadata, reader StreamReader, response *Result) ([]publish.Transformable, bool) {
 	var (
 		err      error
 		rawModel map[string]interface{}
-		events   []model.Transformable
+		events   []publish.Transformable
 	)
 
 	if ipRateLimiter != nil {
