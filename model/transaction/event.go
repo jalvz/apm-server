@@ -91,7 +91,7 @@ func Decode(input interface{}, requestTime time.Time, metadata metadata.Metadata
 		return nil, err
 	}
 
-	ctx, err := m.DecodeContext(raw, experimental, nil)
+	ctx, err := m.DecodeContext(raw, experimental)
 	if err != nil {
 		return nil, err
 	}

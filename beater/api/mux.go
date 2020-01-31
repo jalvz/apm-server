@@ -130,7 +130,7 @@ func backendIntakeHandler(cfg *config.Config, builder *authorization.Builder, re
 	}
 	h := intake.Handler(systemMetadataDecoder(cfg, nil),
 		&stream.Processor{
-			Decoders: map[string]stream.Decoder{
+			Decoders: map[string]stream.EventDecoder{
 				"transaction": stream.DecoderFunc(transformer.DecodeTransaction),
 				"span":        stream.DecoderFunc(transformer.DecodeSpan),
 				"error":       stream.DecoderFunc(transformer.DecodeError),
@@ -156,7 +156,7 @@ func rumIntakeHandler(cfg *config.Config, _ *authorization.Builder, reporter pub
 	}
 	h := intake.Handler(userMetaDataDecoder(cfg),
 		&stream.Processor{
-			Decoders: map[string]stream.Decoder{
+			Decoders: map[string]stream.EventDecoder{
 				"transaction": stream.DecoderFunc(transformer.DecodeTransaction),
 				"span":        stream.DecoderFunc(transformer.DecodeSpan),
 				"error":       stream.DecoderFunc(transformer.DecodeError),
@@ -248,10 +248,10 @@ func rootMiddleware(_ *config.Config, auth *authorization.Handler) []middleware.
 		middleware.AuthorizationMiddleware(auth, false))
 }
 
-func systemMetadataDecoder(beaterConfig *config.Config, d decoder.ReqDecoder) decoder.ReqDecoder {
+func systemMetadataDecoder(beaterConfig *config.Config, d decoder.RequestDecoder) decoder.RequestDecoder {
 	return decoder.DecodeSystemData(d, beaterConfig.AugmentEnabled)
 }
 
-func userMetaDataDecoder(beaterConfig *config.Config) decoder.ReqDecoder {
+func userMetaDataDecoder(beaterConfig *config.Config) decoder.RequestDecoder {
 	return decoder.DecodeUserData(beaterConfig.AugmentEnabled)
 }

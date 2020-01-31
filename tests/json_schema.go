@@ -25,22 +25,17 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/elastic/apm-server/processor/asset/sourcemap"
+	"github.com/elastic/apm-server/tests/loader"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/elastic/beats/libbeat/beat"
 	"github.com/elastic/beats/libbeat/mapping"
 )
 
-type TestProcessor interface {
-	LoadPayload(string) (interface{}, error)
-	Process([]byte) ([]beat.Event, error)
-	Validate(interface{}) error
-	Decode(interface{}) error
-}
-
 type ProcessorSetup struct {
-	Proc TestProcessor
+	Proc sourcemap.SourcemapProcessor
 	// path to payload that should be a full and valid example
 	FullPayloadPath string
 	// path to ES template definitions
@@ -93,7 +88,7 @@ func (ps *ProcessorSetup) PayloadAttrsMatchJsonSchema(t *testing.T, payloadAttrs
 	require.True(t, len(ps.Schema) > 0, "Schema must be set")
 
 	// check payload attrs in json schema
-	payload, err := ps.Proc.LoadPayload(ps.FullPayloadPath)
+	payload, err := loader.LoadData(ps.FullPayloadPath)
 	require.NoError(t, err, fmt.Sprintf("File %s not loaded", ps.FullPayloadPath))
 	payloadAttrs := NewSet()
 	flattenJsonKeys(payload, "", payloadAttrs)
@@ -136,7 +131,7 @@ func (ps *ProcessorSetup) AttrsPresence(t *testing.T, requiredKeys *Set, condReq
 		"process.pid",
 	))
 
-	payload, err := ps.Proc.LoadPayload(ps.FullPayloadPath)
+	payload, err := loader.LoadData(ps.FullPayloadPath)
 	require.NoError(t, err)
 
 	payloadKeys := NewSet()
@@ -256,10 +251,12 @@ func (ps *ProcessorSetup) changePayload(
 	validateFn func(string) (bool, []string),
 ) {
 	// load payload
-	payload, err := ps.Proc.LoadPayload(ps.FullPayloadPath)
+	var payload interface{}
+	var err error
+	payload, err = loader.LoadData(ps.FullPayloadPath)
 	require.NoError(t, err)
 
-	err = ps.Proc.Validate(payload)
+	err = ps.Proc.Validate(payload.(map[string]interface{}))
 	assert.NoError(t, err, "vanilla payload did not validate")
 
 	// prepare payload according to conditions:
@@ -289,10 +286,10 @@ func (ps *ProcessorSetup) changePayload(
 	}()
 
 	// run actual validation
-	err = ps.Proc.Validate(payload)
+	err = ps.Proc.Validate(payload.(map[string]interface{}))
 	if shouldValidate, errMsgs := validateFn(key); shouldValidate {
 		wantLog = !assert.NoError(t, err, fmt.Sprintf("Expected <%v> for key <%s> to be valid", val, key))
-		err = ps.Proc.Decode(payload)
+		_, err = ps.Proc.Decode(payload.(map[string]interface{}), nil)
 		assert.NoError(t, err)
 	} else {
 		if assert.Error(t, err, fmt.Sprintf(`Expected error for key <%v>, but received no error.`, key)) {

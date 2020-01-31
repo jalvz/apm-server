@@ -33,9 +33,7 @@ type ManualDecoder struct {
 	Err error
 }
 
-var (
-	ErrFetch = errors.New("error fetching field")
-)
+var ErrFetch = errors.New("error fetching field")
 
 func (d *ManualDecoder) Float64(base map[string]interface{}, key string, keys ...string) float64 {
 	val := getDeep(base, keys...)[key]

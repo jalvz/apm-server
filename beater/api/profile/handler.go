@@ -57,7 +57,7 @@ const (
 )
 
 // Handler returns a request.Handler for managing profile requests.
-func Handler(dec decoder.ReqDecoder, report publish.Reporter) request.Handler {
+func Handler(dec decoder.RequestDecoder, report publish.Reporter) request.Handler {
 	handle := func(c *request.Context) (*result, error) {
 		if c.Request.Method != http.MethodPost {
 			return nil, requestError{

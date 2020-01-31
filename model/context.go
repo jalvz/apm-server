@@ -106,13 +106,13 @@ type Client struct {
 }
 
 // DecodeContext parses all information from input, nested under key context and returns an instance of Context.
-func DecodeContext(input interface{}, allowExperimental bool, err error) (*Context, error) {
-	if input == nil || err != nil {
-		return nil, err
+func DecodeContext(input interface{}, allowExperimental bool) (*Context, error) {
+	if input == nil {
+		return nil, nil
 	}
 	raw, ok := input.(map[string]interface{})
 	if !ok {
-		return nil, errors.New("invalid type for fetching Context out")
+		return nil, errors.New("invalid type for fetching context out")
 	}
 
 	decoder := utility.ManualDecoder{}

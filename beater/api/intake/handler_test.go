@@ -38,12 +38,10 @@ import (
 	"github.com/elastic/apm-server/beater/headers"
 	"github.com/elastic/apm-server/beater/request"
 	"github.com/elastic/apm-server/decoder"
-	"github.com/elastic/apm-server/model"
 	"github.com/elastic/apm-server/processor/stream"
 	"github.com/elastic/apm-server/publish"
 	"github.com/elastic/apm-server/tests/approvals"
 	"github.com/elastic/apm-server/tests/loader"
-	"github.com/elastic/apm-server/transform"
 )
 
 func TestIntakeHandler(t *testing.T) {
@@ -168,7 +166,7 @@ type testcaseIntakeHandler struct {
 	c         *request.Context
 	w         *httptest.ResponseRecorder
 	r         *http.Request
-	dec       decoder.ReqDecoder
+	dec       decoder.RequestDecoder
 	processor *stream.Processor
 	rateLimit *ratelimit.Store
 	reporter  func(ctx context.Context, p publish.PendingReq) error
@@ -185,9 +183,7 @@ func (tc *testcaseIntakeHandler) setup(t *testing.T) {
 	if tc.processor == nil {
 		cfg := config.DefaultConfig("7.0.0")
 		tc.processor = &stream.Processor{
-			TransformConfig: transform.Config{},
-			Mconfig:         model.Config{Experimental: cfg.Mode == config.ModeExperimental},
-			MaxEventSize:    cfg.MaxEventSize,
+			MaxEventSize: cfg.MaxEventSize,
 		}
 	}
 	if tc.reporter == nil {

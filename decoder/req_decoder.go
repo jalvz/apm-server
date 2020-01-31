@@ -34,8 +34,7 @@ import (
 	"github.com/elastic/apm-server/utility"
 )
 
-type ReqReader func(req *http.Request) (io.ReadCloser, error)
-type ReqDecoder func(req *http.Request) (map[string]interface{}, error)
+type RequestDecoder func(req *http.Request) (map[string]interface{}, error)
 
 var (
 	decoderMetrics                = monitoring.Default.NewRegistry("apm-server.decoder", monitoring.PublishExpvar)
@@ -64,7 +63,7 @@ func (mr monitoringReader) Close() error {
 	return mr.r.Close()
 }
 
-func DecodeLimitJSONData(maxSize int64) ReqDecoder {
+func DecodeLimitJSONData(maxSize int64) RequestDecoder {
 	return func(req *http.Request) (map[string]interface{}, error) {
 		contentType := req.Header.Get("Content-Type")
 		if !strings.Contains(contentType, "application/json") {
@@ -162,7 +161,7 @@ func DecodeSourcemapFormData(req *http.Request) (map[string]interface{}, error) 
 	return payload, nil
 }
 
-func DecodeUserData(enabled bool) ReqDecoder {
+func DecodeUserData(enabled bool) RequestDecoder {
 	if !enabled {
 		return nil
 	}
@@ -180,7 +179,7 @@ func DecodeUserData(enabled bool) ReqDecoder {
 	return augmentData(nil, "user", augment)
 }
 
-func DecodeSystemData(decoder ReqDecoder, enabled bool) ReqDecoder {
+func DecodeSystemData(decoder RequestDecoder, enabled bool) RequestDecoder {
 	if !enabled {
 		return decoder
 	}
@@ -194,7 +193,7 @@ func DecodeSystemData(decoder ReqDecoder, enabled bool) ReqDecoder {
 	return augmentData(decoder, "system", augment)
 }
 
-func augmentData(decoder ReqDecoder, key string, augment func(req *http.Request) map[string]interface{}) ReqDecoder {
+func augmentData(decoder RequestDecoder, key string, augment func(req *http.Request) map[string]interface{}) RequestDecoder {
 	return func(req *http.Request) (map[string]interface{}, error) {
 		v := map[string]interface{}{}
 		if decoder != nil {

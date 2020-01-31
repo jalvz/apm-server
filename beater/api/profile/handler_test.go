@@ -22,7 +22,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/elastic/apm-server/model/profile"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -31,6 +30,8 @@ import (
 	"runtime/pprof"
 	"strings"
 	"testing"
+
+	"github.com/elastic/apm-server/model/profile"
 
 	"github.com/elastic/apm-server/beater/api/ratelimit"
 
@@ -221,7 +222,7 @@ type testcaseIntakeHandler struct {
 	c         *request.Context
 	w         *httptest.ResponseRecorder
 	r         *http.Request
-	dec       decoder.ReqDecoder
+	dec       decoder.RequestDecoder
 	rateLimit *ratelimit.Store
 	reporter  func(t *testing.T) publish.Reporter
 	reports   int

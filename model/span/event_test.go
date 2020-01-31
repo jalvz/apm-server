@@ -24,6 +24,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/elastic/apm-server/publish"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -33,7 +35,6 @@ import (
 	"github.com/elastic/apm-server/model/metadata"
 	"github.com/elastic/apm-server/sourcemap"
 	"github.com/elastic/apm-server/tests"
-	"github.com/elastic/apm-server/transform"
 	"github.com/elastic/apm-server/utility"
 )
 
@@ -76,13 +77,12 @@ func TestDecodeSpan(t *testing.T) {
 
 	for name, test := range map[string]struct {
 		input interface{}
-		cfg   m.Config
 		// we don't use a regular `error.New` here, because some errors are of a different type
 		err    string
 		inpErr error
-		e      transform.Transformable
+		e      publish.Transformable
 	}{
-		"no input":     {input: nil, err: errMissingInput.Error()},
+		"no input":     {input: nil, err: "fuuu"},
 		"input error":  {input: nil, inpErr: errors.New("a"), err: "a"},
 		"invalid type": {input: "", err: errInvalidType.Error()},
 		"missing required field": {

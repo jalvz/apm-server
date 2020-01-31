@@ -32,19 +32,15 @@ import (
 	"github.com/elastic/apm-server/validation"
 )
 
-const eventName = "sourcemap"
+var Processor = &SourcemapProcessor{
+	PayloadSchema: sm.PayloadSchema(),
+	DecodingCount: monitoring.NewInt(sm.Metrics, "decoding.count"),
+	DecodingError: monitoring.NewInt(sm.Metrics, "decoding.errors"),
+	ValidateCount: monitoring.NewInt(sm.Metrics, "validation.count"),
+	ValidateError: monitoring.NewInt(sm.Metrics, "validation.errors"),
+}
 
-var (
-	Processor = &sourcemapProcessor{
-		PayloadSchema: sm.PayloadSchema(),
-		DecodingCount: monitoring.NewInt(sm.Metrics, "decoding.count"),
-		DecodingError: monitoring.NewInt(sm.Metrics, "decoding.errors"),
-		ValidateCount: monitoring.NewInt(sm.Metrics, "validation.count"),
-		ValidateError: monitoring.NewInt(sm.Metrics, "validation.errors"),
-	}
-)
-
-type sourcemapProcessor struct {
+type SourcemapProcessor struct {
 	PayloadKey    string
 	PayloadSchema *jsonschema.Schema
 	DecodingCount *monitoring.Int
@@ -53,11 +49,7 @@ type sourcemapProcessor struct {
 	ValidateError *monitoring.Int
 }
 
-func (p *sourcemapProcessor) Name() string {
-	return eventName
-}
-
-func (p *sourcemapProcessor) Decode(raw map[string]interface{}, sourcemapStore *sourcemap.Store) ([]publish.Transformable, error) {
+func (p *SourcemapProcessor) Decode(raw map[string]interface{}, sourcemapStore *sourcemap.Store) ([]publish.Transformable, error) {
 	p.DecodingCount.Inc()
 	sourcemap, err := sm.DecodeSourcemap(raw)
 	if err != nil {
@@ -76,7 +68,7 @@ func (ts *transformableSourcemap) Transform() []beat.Event {
 	return ts.sourcemap.Transform(ts.store)
 }
 
-func (p *sourcemapProcessor) Validate(raw map[string]interface{}) error {
+func (p *SourcemapProcessor) Validate(raw map[string]interface{}) error {
 	p.ValidateCount.Inc()
 
 	smap, ok := raw["sourcemap"].(string)

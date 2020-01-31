@@ -32,12 +32,11 @@ import (
 
 	"github.com/elastic/apm-server/processor/asset/sourcemap"
 	"github.com/elastic/apm-server/tests"
-	"github.com/elastic/apm-server/transform"
 )
 
 var (
 	procSetup = tests.ProcessorSetup{
-		Proc:            &TestProcessor{Processor: sourcemap.Processor},
+		Proc:            *sourcemap.Processor,
 		FullPayloadPath: "../testdata/sourcemap/payload.json",
 		TemplatePaths:   []string{"../../../../model/sourcemap/_meta/fields.yml"},
 		Schema:          schema.PayloadSchema,
@@ -56,7 +55,6 @@ func TestSourcemapProcessorOK(t *testing.T) {
 
 	for _, info := range data {
 		p := sourcemap.Processor
-		tctx := transform.Context{}
 
 		data, err := loader.LoadData(info.Path)
 		require.NoError(t, err)
@@ -64,13 +62,12 @@ func TestSourcemapProcessorOK(t *testing.T) {
 		err = p.Validate(data)
 		require.NoError(t, err)
 
-		metadata, payload, err := p.Decode(data)
+		payload, err := p.Decode(data, nil)
 		require.NoError(t, err)
 
-		tctx.Metadata = *metadata
 		var events []beat.Event
 		for _, transformable := range payload {
-			events = append(events, transformable.Transform(&tctx)...)
+			events = append(events, transformable.Transform()...)
 		}
 		verifyErr := approvals.ApproveEvents(events, info.Name, "@timestamp")
 		if verifyErr != nil {

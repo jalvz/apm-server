@@ -18,11 +18,15 @@
 package tests
 
 import (
+	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/elastic/apm-server/processor/asset/sourcemap"
+	"github.com/elastic/beats/libbeat/beat"
 
 	"github.com/stretchr/testify/require"
 
@@ -57,11 +61,11 @@ func (ps *ProcessorSetup) PayloadAttrsMatchFields(t *testing.T, payloadAttrsNotI
 		Group("http.request.headers"),
 		Group("http.response.headers"),
 	))
-	events := fetchFields(t, ps.Proc, ps.FullPayloadPath, notInFields)
+	events := fetchFields(t, ps.FullPayloadPath, notInFields)
 	ps.EventFieldsInTemplateFields(t, events, notInFields)
 
 	// check ES fields in event
-	events = fetchFields(t, ps.Proc, ps.FullPayloadPath, fieldsNotInPayload)
+	events = fetchFields(t, ps.FullPayloadPath, fieldsNotInPayload)
 	ps.TemplateFieldsInEventFields(t, events, fieldsNotInPayload)
 }
 
@@ -115,10 +119,10 @@ func (ps *ProcessorSetup) TemplateFieldsInEventFields(t *testing.T, eventFields,
 	assertEmptySet(t, missing, fmt.Sprintf("Fields missing in event: %v", missing))
 }
 
-func fetchFields(t *testing.T, p TestProcessor, path string, blacklisted *Set) *Set {
+func fetchFields(t *testing.T, path string, blacklisted *Set) *Set {
 	buf, err := loader.LoadDataAsBytes(path)
 	require.NoError(t, err)
-	events, err := p.Process(buf)
+	events, err := process(buf)
 	require.NoError(t, err)
 
 	keys := NewSet()
@@ -246,4 +250,27 @@ func isEnabled(f mapping.Field) bool {
 
 func isDisabled(f mapping.Field) bool {
 	return f.Enabled != nil && !*f.Enabled
+}
+
+func process(buf []byte) ([]beat.Event, error) {
+	var pl map[string]interface{}
+	err := json.Unmarshal(buf, &pl)
+	if err != nil {
+		return nil, err
+	}
+
+	err = sourcemap.Processor.Validate(pl)
+	if err != nil {
+		return nil, err
+	}
+	transformables, err := sourcemap.Processor.Decode(pl, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var events []beat.Event
+	for _, transformable := range transformables {
+		events = append(events, transformable.Transform()...)
+	}
+	return events, nil
 }

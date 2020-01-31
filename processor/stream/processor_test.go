@@ -93,7 +93,7 @@ func TestIntegrationESOutput(t *testing.T) {
 	report := func(ctx context.Context, p publish.PendingReq) error {
 		var events []beat.Event
 		for _, transformable := range p.Transformables {
-			events = append(events, transformable.Transform(p.Tcontext)...)
+			events = append(events, transformable.Transform()...)
 		}
 		name := ctx.Value("name").(string)
 		verifyErr := approvals.ApproveEvents(events, name)
@@ -148,7 +148,7 @@ func TestIntegrationRum(t *testing.T) {
 	report := func(ctx context.Context, p publish.PendingReq) error {
 		var events []beat.Event
 		for _, transformable := range p.Transformables {
-			events = append(events, transformable.Transform(p.Tcontext)...)
+			events = append(events, transformable.Transform()...)
 		}
 		name := ctx.Value("name").(string)
 		verifyErr := approvals.ApproveEvents(events, name)

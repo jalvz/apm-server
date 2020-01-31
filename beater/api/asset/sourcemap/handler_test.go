@@ -20,10 +20,11 @@ package sourcemap
 import (
 	"context"
 	"fmt"
-	"github.com/elastic/apm-server/tests/loader"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/elastic/apm-server/tests/loader"
 
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
@@ -103,10 +104,10 @@ func TestAssetHandler(t *testing.T) {
 }
 
 type testcaseT struct {
-	w         *httptest.ResponseRecorder
-	r         *http.Request
-	dec       decoder.ReqDecoder
-	reporter  func(ctx context.Context, p publish.PendingReq) error
+	w        *httptest.ResponseRecorder
+	r        *http.Request
+	dec      decoder.RequestDecoder
+	reporter func(ctx context.Context, p publish.PendingReq) error
 
 	code int
 	body string
@@ -124,9 +125,9 @@ func (tc *testcaseT) setup() {
 	if tc.dec == nil {
 		tc.dec = func(*http.Request) (map[string]interface{}, error) {
 			return map[string]interface{}{
-				"sourcemap": string(sourcemap),
+				"sourcemap":       string(sourcemap),
 				"bundle_filepath": "path",
-				"service_name": "service",
+				"service_name":    "service",
 				"service_version": "2",
 			}, nil
 		}
@@ -140,4 +141,3 @@ func (tc *testcaseT) setup() {
 	h := Handler(tc.dec, nil, tc.reporter)
 	h(c)
 }
-
