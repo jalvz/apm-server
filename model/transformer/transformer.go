@@ -14,8 +14,11 @@ import (
 	"github.com/elastic/beats/libbeat/beat"
 )
 
-// Transformer encapsulates configuration for decoding events into
-// model objects, which can later be transformed into beat.Events.
+// Transformer encapsulates configuration for decoding events into model
+// objects, which can later be transformed into beat.Events.
+//
+// The Decode methods adhere to the processor/stream.DecodeFunc signature,
+// and wrap the model objects as necessary to adhere to publish.Transformable.
 type Transformer struct {
 	Experimental        bool
 	LibraryPattern      *regexp.Regexp

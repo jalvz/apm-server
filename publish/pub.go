@@ -92,16 +92,9 @@ func NewPublisher(pipeline beat.Pipeline, tracer *apm.Tracer, cfg *config.Config
 		return nil, err
 	}
 
-	// TODO doesn't need to be memoized anymore
-	//sourcemapStore, err := cfg.RumConfig.MemoizedSourcemapStore()
-	//if err != nil {
-	//	return nil, err
-	//}
-
 	p := &Publisher{
 		tracer: tracer,
 		client: client,
-		//converter: converter.NewConverter(cfg.RumConfig.LibraryPattern, cfg.RumConfig.ExcludeFromGrouping, sourcemapStore),
 		// One request will be actively processed by the
 		// worker, while the other concurrent requests will be buffered in the queue.
 		pendingRequests: make(chan PendingReq, runtime.GOMAXPROCS(0)),
