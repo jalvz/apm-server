@@ -24,12 +24,10 @@ import (
 	"time"
 
 	"github.com/elastic/apm-server/beater/config"
-	"github.com/elastic/apm-server/model/converter"
 
 	"github.com/pkg/errors"
 	"go.elastic.co/apm"
 
-	"github.com/elastic/apm-server/model"
 	"github.com/elastic/beats/libbeat/beat"
 	"github.com/elastic/beats/libbeat/common"
 )
@@ -49,12 +47,15 @@ type Publisher struct {
 	client          beat.Client
 	m               sync.RWMutex
 	stopped         bool
-	converter       converter.EventConverter
 }
 
 type PendingReq struct {
-	Transformables []model.Transformable
+	Transformables []Transformable
 	Trace          bool
+}
+
+type Transformable interface {
+	Transform() []beat.Event
 }
 
 var (
@@ -92,15 +93,15 @@ func NewPublisher(pipeline beat.Pipeline, tracer *apm.Tracer, cfg *config.Config
 	}
 
 	// TODO doesn't need to be memoized anymore
-	sourcemapStore, err := cfg.RumConfig.MemoizedSourcemapStore()
-	if err != nil {
-		return nil, err
-	}
+	//sourcemapStore, err := cfg.RumConfig.MemoizedSourcemapStore()
+	//if err != nil {
+	//	return nil, err
+	//}
 
 	p := &Publisher{
-		tracer:    tracer,
-		client:    client,
-		converter: converter.NewConverter(cfg.RumConfig.LibraryPattern, cfg.RumConfig.ExcludeFromGrouping, sourcemapStore),
+		tracer: tracer,
+		client: client,
+		//converter: converter.NewConverter(cfg.RumConfig.LibraryPattern, cfg.RumConfig.ExcludeFromGrouping, sourcemapStore),
 		// One request will be actively processed by the
 		// worker, while the other concurrent requests will be buffered in the queue.
 		pendingRequests: make(chan PendingReq, runtime.GOMAXPROCS(0)),
@@ -164,7 +165,7 @@ func (p *Publisher) processPendingReq(req PendingReq) {
 
 	for _, transformable := range req.Transformables {
 		span := tx.StartSpan("transform", "Publisher", nil)
-		events := p.converter.ToBeatEvents(transformable)
+		events := transformable.Transform()
 		span.End()
 
 		span = tx.StartSpan("PublishAll", "Publisher", nil)

@@ -89,8 +89,6 @@ type Event struct {
 	Metadata metadata.Metadata
 }
 
-func (_ Event) APMEvent() {}
-
 type Exception struct {
 	Message    *string
 	Module     *string
@@ -111,70 +109,68 @@ type Log struct {
 	Stacktrace   m.Stacktrace
 }
 
-func Decoder(experimental bool) m.EventDecoder {
-	return func(input interface{}, requestTime time.Time, metadata metadata.Metadata) (m.Transformable, error) {
-		raw, ok := input.(map[string]interface{})
-		if !ok {
-			return nil, errInvalidType
-		}
-		err := validation.Validate(input, cachedModelSchema)
-		if err != nil {
-			return nil, err
-		}
-
-		ctx, err := m.DecodeContext(raw, experimental, nil)
-		if err != nil {
-			return nil, err
-		}
-		decoder := utility.ManualDecoder{}
-		e := Event{
-			Id:                 decoder.StringPtr(raw, "id"),
-			Culprit:            decoder.StringPtr(raw, "culprit"),
-			Labels:             ctx.Labels,
-			Page:               ctx.Page,
-			Http:               ctx.Http,
-			Url:                ctx.Url,
-			Custom:             ctx.Custom,
-			User:               ctx.User,
-			Service:            ctx.Service,
-			Experimental:       ctx.Experimental,
-			Client:             ctx.Client,
-			Timestamp:          decoder.TimeEpochMicro(raw, "timestamp"),
-			TransactionId:      decoder.StringPtr(raw, "transaction_id"),
-			ParentId:           decoder.StringPtr(raw, "parent_id"),
-			TraceId:            decoder.StringPtr(raw, "trace_id"),
-			TransactionSampled: decoder.BoolPtr(raw, "sampled", "transaction"),
-			TransactionType:    decoder.StringPtr(raw, "type", "transaction"),
-			Metadata:           metadata,
-		}
-		if e.Timestamp.IsZero() {
-			e.Timestamp = requestTime
-		}
-
-		ex := decoder.MapStr(raw, "exception")
-		e.Exception = decodeException(&decoder)(ex)
-
-		log := decoder.MapStr(raw, "log")
-		logMsg := decoder.StringPtr(log, "message")
-		if logMsg != nil {
-			e.Log = &Log{
-				Message:      *logMsg,
-				ParamMessage: decoder.StringPtr(log, "param_message"),
-				Level:        decoder.StringPtr(log, "level"),
-				LoggerName:   decoder.StringPtr(log, "logger_name"),
-				Stacktrace:   m.Stacktrace{},
-			}
-			var stacktrace *m.Stacktrace
-			stacktrace, decoder.Err = m.DecodeStacktrace(log["stacktrace"], decoder.Err)
-			if stacktrace != nil {
-				e.Log.Stacktrace = *stacktrace
-			}
-		}
-		if decoder.Err != nil {
-			return nil, decoder.Err
-		}
-		return &e, nil
+func Decode(input interface{}, requestTime time.Time, metadata metadata.Metadata, experimental bool) (*Event, error) {
+	raw, ok := input.(map[string]interface{})
+	if !ok {
+		return nil, errInvalidType
 	}
+	err := validation.Validate(input, cachedModelSchema)
+	if err != nil {
+		return nil, err
+	}
+
+	ctx, err := m.DecodeContext(raw, experimental, nil)
+	if err != nil {
+		return nil, err
+	}
+	decoder := utility.ManualDecoder{}
+	e := Event{
+		Id:                 decoder.StringPtr(raw, "id"),
+		Culprit:            decoder.StringPtr(raw, "culprit"),
+		Labels:             ctx.Labels,
+		Page:               ctx.Page,
+		Http:               ctx.Http,
+		Url:                ctx.Url,
+		Custom:             ctx.Custom,
+		User:               ctx.User,
+		Service:            ctx.Service,
+		Experimental:       ctx.Experimental,
+		Client:             ctx.Client,
+		Timestamp:          decoder.TimeEpochMicro(raw, "timestamp"),
+		TransactionId:      decoder.StringPtr(raw, "transaction_id"),
+		ParentId:           decoder.StringPtr(raw, "parent_id"),
+		TraceId:            decoder.StringPtr(raw, "trace_id"),
+		TransactionSampled: decoder.BoolPtr(raw, "sampled", "transaction"),
+		TransactionType:    decoder.StringPtr(raw, "type", "transaction"),
+		Metadata:           metadata,
+	}
+	if e.Timestamp.IsZero() {
+		e.Timestamp = requestTime
+	}
+
+	ex := decoder.MapStr(raw, "exception")
+	e.Exception = decodeException(&decoder)(ex)
+
+	log := decoder.MapStr(raw, "log")
+	logMsg := decoder.StringPtr(log, "message")
+	if logMsg != nil {
+		e.Log = &Log{
+			Message:      *logMsg,
+			ParamMessage: decoder.StringPtr(log, "param_message"),
+			Level:        decoder.StringPtr(log, "level"),
+			LoggerName:   decoder.StringPtr(log, "logger_name"),
+			Stacktrace:   m.Stacktrace{},
+		}
+		var stacktrace *m.Stacktrace
+		stacktrace, decoder.Err = m.DecodeStacktrace(log["stacktrace"], decoder.Err)
+		if stacktrace != nil {
+			e.Log.Stacktrace = *stacktrace
+		}
+	}
+	if decoder.Err != nil {
+		return nil, decoder.Err
+	}
+	return &e, nil
 }
 
 func (e *Event) Transform(libraryPattern, excludeFromGrouping *regexp.Regexp, sourcemapStore *sourcemap.Store) []beat.Event {

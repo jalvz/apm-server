@@ -20,12 +20,10 @@ package api
 import (
 	"expvar"
 	"net/http"
+	"regexp"
 
-	"github.com/elastic/apm-server/model"
+	"github.com/elastic/apm-server/model/transformer"
 
-	"github.com/elastic/apm-server/model/metricset"
-	"github.com/elastic/apm-server/model/span"
-	"github.com/elastic/apm-server/model/transaction"
 	"github.com/elastic/beats/libbeat/monitoring"
 
 	"github.com/elastic/beats/libbeat/logp"
@@ -42,7 +40,6 @@ import (
 	"github.com/elastic/apm-server/decoder"
 	"github.com/elastic/apm-server/kibana"
 	logs "github.com/elastic/apm-server/log"
-	apmerror "github.com/elastic/apm-server/model/error"
 	"github.com/elastic/apm-server/processor/stream"
 	"github.com/elastic/apm-server/publish"
 )
@@ -128,14 +125,16 @@ func profileHandler(cfg *config.Config, builder *authorization.Builder, reporter
 }
 
 func backendIntakeHandler(cfg *config.Config, builder *authorization.Builder, reporter publish.Reporter) (request.Handler, error) {
-	experimental := cfg.Mode == config.ModeExperimental
+	transformer := &transformer.Transformer{
+		Experimental: cfg.Mode == config.ModeExperimental,
+	}
 	h := intake.Handler(systemMetadataDecoder(cfg, nil),
 		&stream.Processor{
-			Decoders: map[string]model.EventDecoder{
-				"transaction": transaction.Decoder(experimental),
-				"span":        span.Decoder(experimental),
-				"error":       apmerror.Decoder(experimental),
-				"metricset":   metricset.Decode,
+			Decoders: map[string]stream.Decoder{
+				"transaction": stream.DecoderFunc(transformer.DecodeTransaction),
+				"span":        stream.DecoderFunc(transformer.DecodeSpan),
+				"error":       stream.DecoderFunc(transformer.DecodeError),
+				"metricset":   stream.DecoderFunc(transformer.DecodeMetricset),
 			},
 			MaxEventSize: cfg.MaxEventSize,
 		},
@@ -145,15 +144,24 @@ func backendIntakeHandler(cfg *config.Config, builder *authorization.Builder, re
 }
 
 func rumIntakeHandler(cfg *config.Config, _ *authorization.Builder, reporter publish.Reporter) (request.Handler, error) {
-	experimental := cfg.Mode == config.ModeExperimental
+	sourcemapStore, err := cfg.RumConfig.MemoizedSourcemapStore()
+	if err != nil {
+		return nil, err
+	}
+	transformer := &transformer.Transformer{
+		Experimental:        cfg.Mode == config.ModeExperimental,
+		SourcemapStore:      sourcemapStore,
+		LibraryPattern:      regexp.MustCompile(cfg.RumConfig.LibraryPattern),
+		ExcludeFromGrouping: regexp.MustCompile(cfg.RumConfig.ExcludeFromGrouping),
+	}
 	h := intake.Handler(userMetaDataDecoder(cfg),
 		&stream.Processor{
-			Decoders: map[string]model.EventDecoder{
-				"transaction": transaction.Decoder(experimental),
-				"span":        span.Decoder(experimental),
-				"error":       apmerror.Decoder(experimental),
+			Decoders: map[string]stream.Decoder{
+				"transaction": stream.DecoderFunc(transformer.DecodeTransaction),
+				"span":        stream.DecoderFunc(transformer.DecodeSpan),
+				"error":       stream.DecoderFunc(transformer.DecodeError),
 				// todo not for RUM
-				"metricset": metricset.Decode,
+				"metricset": stream.DecoderFunc(transformer.DecodeMetricset),
 			},
 			MaxEventSize: cfg.MaxEventSize,
 		},

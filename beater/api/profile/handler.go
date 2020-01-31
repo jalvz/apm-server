@@ -31,7 +31,6 @@ import (
 	"github.com/elastic/apm-server/beater/headers"
 	"github.com/elastic/apm-server/beater/request"
 	"github.com/elastic/apm-server/decoder"
-	"github.com/elastic/apm-server/model"
 	"github.com/elastic/apm-server/model/metadata"
 	"github.com/elastic/apm-server/model/profile"
 	"github.com/elastic/apm-server/publish"
@@ -180,7 +179,7 @@ func Handler(dec decoder.ReqDecoder, report publish.Reporter) request.Handler {
 			}
 		}
 
-		transformables := make([]model.Transformable, len(profiles))
+		transformables := make([]publish.Transformable, len(profiles))
 		for i, p := range profiles {
 			transformables[i] = profile.PprofProfile{Profile: p, Metadata: *meta}
 		}

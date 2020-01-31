@@ -22,9 +22,10 @@ import (
 	"github.com/pkg/errors"
 	"github.com/santhosh-tekuri/jsonschema"
 
-	"github.com/elastic/apm-server/model"
+	"github.com/elastic/apm-server/publish"
 	"github.com/elastic/apm-server/sourcemap"
 
+	"github.com/elastic/beats/libbeat/beat"
 	"github.com/elastic/beats/libbeat/monitoring"
 
 	sm "github.com/elastic/apm-server/model/sourcemap"
@@ -56,15 +57,23 @@ func (p *sourcemapProcessor) Name() string {
 	return eventName
 }
 
-func (p *sourcemapProcessor) Decode(raw map[string]interface{}, sourcemapStore *sourcemap.Store) ([]model.Transformable, error) {
+func (p *sourcemapProcessor) Decode(raw map[string]interface{}, sourcemapStore *sourcemap.Store) ([]publish.Transformable, error) {
 	p.DecodingCount.Inc()
-	transformable, err := sm.DecodeSourcemap(raw, sourcemapStore)
+	sourcemap, err := sm.DecodeSourcemap(raw)
 	if err != nil {
 		p.DecodingError.Inc()
 		return nil, err
 	}
+	return []publish.Transformable{&transformableSourcemap{sourcemap, sourcemapStore}}, nil
+}
 
-	return []model.Transformable{transformable}, err
+type transformableSourcemap struct {
+	sourcemap *sm.Sourcemap
+	store     *sourcemap.Store
+}
+
+func (ts *transformableSourcemap) Transform() []beat.Event {
+	return ts.sourcemap.Transform(ts.store)
 }
 
 func (p *sourcemapProcessor) Validate(raw map[string]interface{}) error {
