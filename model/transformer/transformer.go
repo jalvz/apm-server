@@ -4,9 +4,14 @@ import (
 	"regexp"
 	"time"
 
+	apmerror "github.com/elastic/apm-server/model/error"
 	"github.com/elastic/apm-server/model/metadata"
+	"github.com/elastic/apm-server/model/metricset"
+	"github.com/elastic/apm-server/model/span"
+	"github.com/elastic/apm-server/model/transaction"
 	"github.com/elastic/apm-server/publish"
 	"github.com/elastic/apm-server/sourcemap"
+	"github.com/elastic/beats/libbeat/beat"
 )
 
 // Transformer encapsulates configuration for decoding events into
@@ -19,21 +24,43 @@ type Transformer struct {
 }
 
 func (t *Transformer) DecodeTransaction(input interface{}, requestTime time.Time, metadata metadata.Metadata) (publish.Transformable, error) {
-	//return transaction.Decoder(t.Experimental)
-	panic("TODO")
+	return transaction.Decode(input, requestTime, metadata, t.Experimental)
 }
 
 func (t *Transformer) DecodeSpan(input interface{}, requestTime time.Time, metadata metadata.Metadata) (publish.Transformable, error) {
-	//return span.Decoder(t.Experimental)
-	panic("TODO")
+	event, err := span.Decode(input, requestTime, metadata, t.Experimental)
+	if err != nil {
+		return nil, err
+	}
+	return &transformableSpan{t, event}, nil
 }
 
 func (t *Transformer) DecodeError(input interface{}, requestTime time.Time, metadata metadata.Metadata) (publish.Transformable, error) {
-	//return apmerror.Decoder(t.Experimental)
-	panic("TODO")
+	event, err := apmerror.Decode(input, requestTime, metadata, t.Experimental)
+	if err != nil {
+		return nil, err
+	}
+	return &transformableError{t, event}, nil
 }
 
 func (t *Transformer) DecodeMetricset(input interface{}, requestTime time.Time, metadata metadata.Metadata) (publish.Transformable, error) {
-	//return metricset.Decode()
-	panic("TODO")
+	return metricset.Decode(input, requestTime, metadata)
+}
+
+type transformableSpan struct {
+	*Transformer
+	event *span.Event
+}
+
+func (ts *transformableSpan) Transform() []beat.Event {
+	return ts.event.Transform(ts.LibraryPattern, ts.ExcludeFromGrouping, ts.SourcemapStore)
+}
+
+type transformableError struct {
+	*Transformer
+	event *apmerror.Event
+}
+
+func (te *transformableError) Transform() []beat.Event {
+	return te.event.Transform(te.LibraryPattern, te.ExcludeFromGrouping, te.SourcemapStore)
 }
