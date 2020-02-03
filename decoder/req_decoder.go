@@ -34,6 +34,7 @@ import (
 	"github.com/elastic/apm-server/utility"
 )
 
+type ReqReader func(req *http.Request) (io.ReadCloser, error)
 type RequestDecoder func(req *http.Request) (map[string]interface{}, error)
 
 var (
@@ -49,35 +50,35 @@ var (
 	readerCounter                 = monitoring.NewInt(decoderMetrics, "reader.count")
 )
 
-type monitoringReader struct {
-	r io.ReadCloser
-}
-
-func (mr monitoringReader) Read(p []byte) (int, error) {
-	n, err := mr.r.Read(p)
-	readerAccumulator.Add(int64(n))
-	return n, err
-}
-
-func (mr monitoringReader) Close() error {
-	return mr.r.Close()
-}
-
-func DecodeLimitJSONData(maxSize int64) RequestDecoder {
-	return func(req *http.Request) (map[string]interface{}, error) {
-		contentType := req.Header.Get("Content-Type")
-		if !strings.Contains(contentType, "application/json") {
-			return nil, fmt.Errorf("invalid content type: %s", req.Header.Get("Content-Type"))
-		}
-
-		reader, err := CompressedRequestReader(req)
-		if err != nil {
-			return nil, err
-		}
-		reader = http.MaxBytesReader(nil, reader, maxSize)
-		return DecodeJSONData(monitoringReader{reader})
-	}
-}
+//type monitoringReader struct {
+//	r io.ReadCloser
+//}
+//
+//func (mr monitoringReader) Read(p []byte) (int, error) {
+//	n, err := mr.r.Read(p)
+//	readerAccumulator.Add(int64(n))
+//	return n, err
+//}
+//
+//func (mr monitoringReader) Close() error {
+//	return mr.r.Close()
+//}
+//
+//func DecodeLimitJSONData(maxSize int64) ReqDecoder {
+//	return func(req *http.Request) (map[string]interface{}, error) {
+//		contentType := req.Header.Get("Content-Type")
+//		if !strings.Contains(contentType, "application/json") {
+//			return nil, fmt.Errorf("invalid content type: %s", req.Header.Get("Content-Type"))
+//		}
+//
+//		reader, err := CompressedRequestReader(req)
+//		if err != nil {
+//			return nil, err
+//		}
+//		reader = http.MaxBytesReader(nil, reader, maxSize)
+//		return DecodeJSONData(monitoringReader{reader})
+//	}
+//}
 
 // CompressedRequestReader returns a reader that will decompress
 // the body according to the supplied Content-Encoding header in the request
@@ -163,20 +164,19 @@ func DecodeSourcemapFormData(req *http.Request) (map[string]interface{}, error) 
 
 func DecodeUserData(enabled bool) RequestDecoder {
 	if !enabled {
-		return nil
+		return func(*http.Request) (map[string]interface{}, error) { return map[string]interface{}{}, nil }
 	}
 
 	dec := utility.ManualDecoder{}
-	augment := func(req *http.Request) map[string]interface{} {
+	return func(req *http.Request) (map[string]interface{}, error) {
 		m := map[string]interface{}{
 			"user-agent": dec.UserAgentHeader(req.Header),
 		}
 		if ip := utility.ExtractIP(req); ip != nil {
 			m["ip"] = ip.String()
 		}
-		return m
+		return map[string]interface{}{"user": m}, nil
 	}
-	return augmentData(nil, "user", augment)
 }
 
 func DecodeSystemData(decoder RequestDecoder, enabled bool) RequestDecoder {
@@ -184,26 +184,28 @@ func DecodeSystemData(decoder RequestDecoder, enabled bool) RequestDecoder {
 		return decoder
 	}
 
-	augment := func(req *http.Request) map[string]interface{} {
-		if ip := utility.ExtractIP(req); ip != nil {
-			return map[string]interface{}{"ip": ip.String()}
-		}
-		return nil
-	}
-	return augmentData(decoder, "system", augment)
-}
-
-func augmentData(decoder RequestDecoder, key string, augment func(req *http.Request) map[string]interface{}) RequestDecoder {
 	return func(req *http.Request) (map[string]interface{}, error) {
-		v := map[string]interface{}{}
-		if decoder != nil {
-			var err error
-			v, err = decoder(req)
-			if err != nil {
-				return v, err
-			}
+		v, err := decoder(req)
+		if err != nil {
+			return v, err
 		}
-		utility.InsertInMap(v, key, augment(req))
+		if ip := utility.ExtractIP(req); ip != nil {
+			utility.InsertInMap(v, "system", map[string]interface{}{
+				"ip": ip.String(),
+			})
+		}
 		return v, nil
 	}
 }
+
+//
+//func augmentData(decoder RequestDecoder, key string, augment func(req *http.Request) map[string]interface{}) RequestDecoder {
+//	return func(req *http.Request) (map[string]interface{}, error) {
+//		v, err := decoder(req)
+//		if err != nil {
+//			return v, err
+//		}
+//		utility.InsertInMap(v, key, augment(req))
+//		return v, nil
+//	}
+//}
