@@ -280,13 +280,12 @@ func Decode(input interface{}, requestTime time.Time, meta metadata.Metadata, ex
 		Metadata:      meta,
 	}
 
-	if event.Timestamp.IsZero() {
-		event.Timestamp = requestTime
+	var offset time.Duration
+	if event.Start != nil {
+		offset = time.Duration(float64(time.Millisecond) * *event.Start)
 	}
-
-	// adjust timestamp to be reqTime + start
-	if event.Timestamp.IsZero() && event.Start != nil {
-		event.Timestamp = requestTime.Add(time.Duration(float64(time.Millisecond) * *event.Start))
+	if event.Timestamp.IsZero() {
+		event.Timestamp = requestTime.Add(offset)
 	}
 
 	ctx := decoder.MapStr(raw, "context")
