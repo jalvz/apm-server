@@ -74,9 +74,9 @@ func TestDecodeSpan(t *testing.T) {
 	for name, test := range map[string]struct {
 		input interface{}
 		// we don't use a regular `error.New` here, because some errors are of a different type
-		err    string
+		err          string
 		experimental bool
-		event  *Event
+		event        *Event
 	}{
 		"no input":     {input: nil, err: errInvalidType.Error()},
 		"invalid type": {input: "", err: errInvalidType.Error()},
@@ -169,7 +169,7 @@ func TestDecodeSpan(t *testing.T) {
 				TraceId:       traceId,
 				TransactionId: &transactionId,
 			},
-			experimental:true,
+			experimental: true,
 		},
 		"event experimental=true": {
 			input: map[string]interface{}{
@@ -191,7 +191,7 @@ func TestDecodeSpan(t *testing.T) {
 				TransactionId: &transactionId,
 				Experimental:  123,
 			},
-			experimental:true,
+			experimental: true,
 		},
 		"full valid payload": {
 			input: map[string]interface{}{
@@ -374,12 +374,12 @@ func TestEventTransformUseReqTimePlusStart(t *testing.T) {
 	reqTimestampParsed := time.Date(2017, 5, 30, 18, 53, 27, 154*1e6, time.UTC)
 	start := 1234.8
 	event, error := Decode(map[string]interface{}{
-		"start": start,
-		"duration": 0.0,
-		"type": "db",
-		"id": "abc",
-		"name": "name",
-		"trace_id": "abd",
+		"start":     start,
+		"duration":  0.0,
+		"type":      "db",
+		"id":        "abc",
+		"name":      "name",
+		"trace_id":  "abd",
 		"parent_id": "tx1",
 	}, reqTimestampParsed, metadata.Metadata{}, false)
 	require.NoError(t, error)

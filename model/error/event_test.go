@@ -29,6 +29,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/elastic/apm-server/utility"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -101,9 +103,10 @@ func TestErrorEventDecode(t *testing.T) {
 	for name, test := range map[string]struct {
 		input        interface{}
 		experimental bool
-		e            *Event
+		error        string
+		event        *Event
 	}{
-		"invalid type": {input: "", e: nil},
+		"invalid type": {input: "", event: nil},
 		"error decoding timestamp": {
 			input: map[string]interface{}{
 				"timestamp": 123,
@@ -112,6 +115,7 @@ func TestErrorEventDecode(t *testing.T) {
 					"message": "Exception Msg",
 				},
 			},
+			error: utility.ErrFetch.Error(),
 		},
 		"error decoding transaction id": {
 			input: map[string]interface{}{
@@ -121,13 +125,16 @@ func TestErrorEventDecode(t *testing.T) {
 					"message": "Exception Msg",
 				},
 			},
+			error: "expected string or null, but got number",
 		},
-		"only parent id given": {input: map[string]interface{}{
-			"exception": map[string]interface{}{
-				"message": "Exception Msg",
-			},
-			"id": id, "culprit": culprit, "context": map[string]interface{}{}, "timestamp": timestamp,
-			"parent_id": "123"},
+		"only parent id given": {
+			input: map[string]interface{}{
+				"exception": map[string]interface{}{
+					"message": "Exception Msg",
+				},
+				"id": id, "culprit": culprit, "context": map[string]interface{}{}, "timestamp": timestamp,
+				"parent_id": "123"},
+			error: "missing properties: \"trace_id\"",
 		},
 		"only trace id given": {
 			input: map[string]interface{}{
@@ -136,6 +143,7 @@ func TestErrorEventDecode(t *testing.T) {
 				},
 				"id": id, "culprit": culprit, "context": map[string]interface{}{}, "timestamp": timestamp,
 				"trace_id": "123"},
+			error: "missing properties: \"parent_id\"",
 		},
 		"invalid type for exception stacktrace": {
 			input: map[string]interface{}{
@@ -144,7 +152,9 @@ func TestErrorEventDecode(t *testing.T) {
 					"message":    "Exception Msg",
 					"stacktrace": "123",
 				},
+				"id": "id1",
 			},
+			error: "expected array or null, but got string",
 		},
 		"invalid type for log stacktrace": {
 			input: map[string]interface{}{
@@ -153,7 +163,9 @@ func TestErrorEventDecode(t *testing.T) {
 					"message":    "Log Msg",
 					"stacktrace": "123",
 				},
+				"id": "id1",
 			},
+			error: "expected array or null, but got string",
 		},
 		"minimal valid error": {
 			input: map[string]interface{}{
@@ -164,7 +176,7 @@ func TestErrorEventDecode(t *testing.T) {
 					"message": "Exception Msg",
 				},
 				"timestamp": timestamp},
-			e: &Event{
+			event: &Event{
 				Id:      &id,
 				Culprit: &culprit,
 				Exception: &Exception{
@@ -181,7 +193,7 @@ func TestErrorEventDecode(t *testing.T) {
 					"message": "Exception Msg",
 				},
 				"context": map[string]interface{}{"foo": []string{"a", "b"}}},
-			e: &Event{
+			event: &Event{
 				Id:        &id,
 				Culprit:   &culprit,
 				Timestamp: timestampParsed,
@@ -199,7 +211,7 @@ func TestErrorEventDecode(t *testing.T) {
 					"message": "Exception Msg",
 				},
 				"context": map[string]interface{}{"experimental": []string{"a", "b"}}},
-			e: &Event{
+			event: &Event{
 				Id:        &id,
 				Culprit:   &culprit,
 				Timestamp: timestampParsed,
@@ -216,7 +228,7 @@ func TestErrorEventDecode(t *testing.T) {
 					"message": "Exception Msg",
 				},
 				"context": map[string]interface{}{"experimental": []string{"a", "b"}}},
-			e: &Event{
+			event: &Event{
 				Id:           &id,
 				Culprit:      &culprit,
 				Timestamp:    timestampParsed,
@@ -272,7 +284,7 @@ func TestErrorEventDecode(t *testing.T) {
 				"trace_id":       traceId,
 				"transaction":    map[string]interface{}{"sampled": transactionSampled, "type": transactionType},
 			},
-			e: &Event{
+			event: &Event{
 				Timestamp: timestampParsed,
 				Id:        &id,
 				User:      &user,
@@ -312,14 +324,14 @@ func TestErrorEventDecode(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			event, err := Decode(test.input, time.Now(), metadata.Metadata{}, test.experimental)
-			if test.e != nil {
+			if test.event != nil {
 				if err != nil {
 					assert.Equal(t, err, err.Error())
 				}
 				require.NotNil(t, event)
-				assert.Equal(t, test.e, event)
+				assert.Equal(t, test.event, event)
 			} else {
-				assert.NotNil(t, err)
+				assert.Contains(t, err.Error(), test.error)
 			}
 		})
 	}

@@ -74,7 +74,6 @@ func TestTransactionEventDecode(t *testing.T) {
 	for name, test := range map[string]struct {
 		input        interface{}
 		experimental bool
-		err          string
 		e            Event
 	}{
 		"event experimental=true, no experimental payload": {
@@ -207,14 +206,9 @@ func TestTransactionEventDecode(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			event, err := Decode(test.input, time.Now(), metadata.Metadata{}, test.experimental)
-			if test.err != "" {
-				require.Error(t, err)
-				require.Contains(t, err.Error(), test.err)
-			} else {
-				require.Nil(t, err)
-				require.NotNil(t, event)
-				assert.Equal(t, test.e, *event)
-			}
+			require.Nil(t, err)
+			require.NotNil(t, event)
+			assert.Equal(t, test.e, *event)
 		})
 	}
 }
