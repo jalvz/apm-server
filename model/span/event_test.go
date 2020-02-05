@@ -31,7 +31,6 @@ import (
 	m "github.com/elastic/apm-server/model"
 	"github.com/elastic/apm-server/model/metadata"
 	"github.com/elastic/apm-server/sourcemap"
-	"github.com/elastic/apm-server/tests"
 )
 
 func TestDecodeSpan(t *testing.T) {
@@ -40,7 +39,7 @@ func TestDecodeSpan(t *testing.T) {
 	id, parentId := "0000000000000000", "FFFFFFFFFFFFFFFF"
 	transactionId, traceId := "ABCDEF0123456789", "01234567890123456789abcdefABCDEF"
 	name, spType := "foo", "db"
-	start, duration := 1.2, 3.4
+	start, duration, ageMillis := 1.2, 3.4, 1577958057123
 	method, statusCode, url := "get", 200, "http://localhost"
 	instance, statement, dbType, user, link, rowsAffected := "db01", "select *", "sql", "joe", "other.db.com", 34
 	address, port := "localhost", 8080
@@ -68,7 +67,7 @@ func TestDecodeSpan(t *testing.T) {
 	subtype := "postgresql"
 	action, action2 := "query", "query.custom"
 	stacktrace := []interface{}{map[string]interface{}{
-		"filename": "file",
+		"filename": "foo",
 	}}
 
 	for name, test := range map[string]struct {
@@ -208,7 +207,7 @@ func TestDecodeSpan(t *testing.T) {
 				Duration:  duration,
 				Timestamp: spanTime,
 				Stacktrace: m.Stacktrace{
-					&m.StacktraceFrame{Filename: tests.StringPtr("file")},
+					&m.StacktraceFrame{Filename: &name},
 				},
 				Labels:        common.MapStr{"a": "tag", "tag-key": 17},
 				Id:            id,
@@ -231,8 +230,8 @@ func TestDecodeSpan(t *testing.T) {
 					Resource: &destServiceResource,
 				},
 				Message: &m.Message{
-					QueueName: tests.StringPtr("foo"),
-					AgeMillis: tests.IntPtr(1577958057123)},
+					QueueName: &name,
+					AgeMillis: &ageMillis},
 			},
 		},
 	} {
@@ -312,7 +311,7 @@ func TestSpanTransform(t *testing.T) {
 					Name:     &destServiceName,
 					Resource: &destServiceResource,
 				},
-				Message: &m.Message{QueueName: tests.StringPtr("users")},
+				Message: &m.Message{QueueName: &action},
 			},
 			Output: common.MapStr{
 				"span": common.MapStr{
@@ -349,7 +348,7 @@ func TestSpanTransform(t *testing.T) {
 							"resource": destServiceResource,
 						},
 					},
-					"message": common.MapStr{"queue": common.MapStr{"name": "users"}},
+					"message": common.MapStr{"queue": common.MapStr{"name": "publish"}},
 				},
 				"labels":      common.MapStr{"label.a": 12, "label.b": "b", "c": 1},
 				"processor":   common.MapStr{"event": "span", "name": "transaction"},

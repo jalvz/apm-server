@@ -28,7 +28,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/elastic/apm-server/elasticsearch"
-	"github.com/elastic/apm-server/tests"
 
 	"github.com/elastic/beats/libbeat/common"
 
@@ -331,42 +330,42 @@ func TestExcludeFromGroupingKey(t *testing.T) {
 			exclude: false,
 		},
 		{
-			fr:      StacktraceFrame{Filename: tests.StringPtr("/webpack")},
+			fr:      StacktraceFrame{Filename: pointer("/webpack")},
 			pattern: "",
 			exclude: false,
 		},
 		{
-			fr:      StacktraceFrame{Filename: tests.StringPtr("/webpack")},
+			fr:      StacktraceFrame{Filename: pointer("/webpack")},
 			pattern: "/webpack/tmp",
 			exclude: false,
 		},
 		{
-			fr:      StacktraceFrame{Filename: tests.StringPtr("")},
+			fr:      StacktraceFrame{Filename: pointer("")},
 			pattern: "^/webpack",
 			exclude: false,
 		},
 		{
-			fr:      StacktraceFrame{Filename: tests.StringPtr("/webpack")},
+			fr:      StacktraceFrame{Filename: pointer("/webpack")},
 			pattern: "^/webpack",
 			exclude: true,
 		},
 		{
-			fr:      StacktraceFrame{Filename: tests.StringPtr("/webpack/test/e2e/general-usecase/app.e2e-bundle.js")},
+			fr:      StacktraceFrame{Filename: pointer("/webpack/test/e2e/general-usecase/app.e2e-bundle.js")},
 			pattern: "^/webpack",
 			exclude: true,
 		},
 		{
-			fr:      StacktraceFrame{Filename: tests.StringPtr("/filename")},
+			fr:      StacktraceFrame{Filename: pointer("/filename")},
 			pattern: "^/webpack",
 			exclude: false,
 		},
 		{
-			fr:      StacktraceFrame{Filename: tests.StringPtr("/filename/a")},
+			fr:      StacktraceFrame{Filename: pointer("/filename/a")},
 			pattern: "^/webpack",
 			exclude: false,
 		},
 		{
-			fr:      StacktraceFrame{Filename: tests.StringPtr("webpack")},
+			fr:      StacktraceFrame{Filename: pointer("webpack")},
 			pattern: "^/webpack",
 			exclude: false,
 		},
@@ -419,17 +418,17 @@ func TestLibraryFrame(t *testing.T) {
 			libraryFrame:     &falsy,
 			origLibraryFrame: &truthy,
 			msg:              "AbsPath given, no Match"},
-		{fr: StacktraceFrame{Filename: tests.StringPtr("myFile.js"), LibraryFrame: &truthy},
+		{fr: StacktraceFrame{Filename: pointer("myFile.js"), LibraryFrame: &truthy},
 			libraryPattern:   regexp.MustCompile("^~/"),
 			libraryFrame:     &falsy,
 			origLibraryFrame: &truthy,
 			msg:              "Filename given, no Match"},
-		{fr: StacktraceFrame{AbsPath: &path, Filename: tests.StringPtr("myFile.js")},
+		{fr: StacktraceFrame{AbsPath: &path, Filename: pointer("myFile.js")},
 			libraryPattern:   regexp.MustCompile("^~/"),
 			libraryFrame:     &falsy,
 			origLibraryFrame: nil,
 			msg:              "AbsPath and Filename given, no Match"},
-		{fr: StacktraceFrame{Filename: tests.StringPtr("/tmp")},
+		{fr: StacktraceFrame{Filename: pointer("/tmp")},
 			libraryPattern:   regexp.MustCompile("/tmp"),
 			libraryFrame:     &truthy,
 			origLibraryFrame: nil,
@@ -439,17 +438,17 @@ func TestLibraryFrame(t *testing.T) {
 			libraryFrame:     &truthy,
 			origLibraryFrame: &falsy,
 			msg:              "AbsPath matching"},
-		{fr: StacktraceFrame{AbsPath: &path, Filename: tests.StringPtr("/a/b/c")},
+		{fr: StacktraceFrame{AbsPath: &path, Filename: pointer("/a/b/c")},
 			libraryPattern:   regexp.MustCompile("~/"),
 			libraryFrame:     &truthy,
 			origLibraryFrame: nil,
 			msg:              "AbsPath matching, Filename not matching"},
-		{fr: StacktraceFrame{AbsPath: &path, Filename: tests.StringPtr("/a/b/c")},
+		{fr: StacktraceFrame{AbsPath: &path, Filename: pointer("/a/b/c")},
 			libraryPattern:   regexp.MustCompile("/a/b/c"),
 			libraryFrame:     &truthy,
 			origLibraryFrame: nil,
 			msg:              "AbsPath not matching, Filename matching"},
-		{fr: StacktraceFrame{AbsPath: &path, Filename: tests.StringPtr("~/a/b/c")},
+		{fr: StacktraceFrame{AbsPath: &path, Filename: pointer("~/a/b/c")},
 			libraryPattern:   regexp.MustCompile("~/"),
 			libraryFrame:     &truthy,
 			origLibraryFrame: nil,
@@ -479,4 +478,8 @@ func testSourcemapStore(t *testing.T, client elasticsearch.Client) *sourcemap.St
 	store, err := sourcemap.NewStore(client, "apm-*sourcemap*", time.Minute)
 	require.NoError(t, err)
 	return store
+}
+
+func pointer(s string) *string {
+	return &s
 }

@@ -18,14 +18,23 @@
 package tests
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
-	"github.com/elastic/apm-server/processor/asset/sourcemap"
+	"k8s.io/apimachinery/pkg/runtime"
+
+	"github.com/elastic/apm-server/decoder"
+
+	"github.com/elastic/apm-server/model/metadata"
+	"github.com/elastic/apm-server/processor/stream"
+
 	"github.com/elastic/apm-server/tests/loader"
 
 	"github.com/stretchr/testify/assert"
@@ -35,7 +44,9 @@ import (
 )
 
 type ProcessorSetup struct {
-	Proc sourcemap.SourcemapProcessor
+	Decoder stream.EventDecoder
+	// a single event of any type, eg. error, span
+	SamplePayload interface{}
 	// path to payload that should be a full and valid example
 	FullPayloadPath string
 	// path to ES template definitions
@@ -84,11 +95,17 @@ var (
 // specified in the schema.
 // - schemaAttrsNotInPayload: attributes that are reflected in the json schema but are
 // not part of the payload.
-func (ps *ProcessorSetup) PayloadAttrsMatchJsonSchema(t *testing.T, payloadAttrsNotInSchema, schemaAttrsNotInPayload *Set) {
+func (ps *ProcessorSetup) PayloadAttrsMatchJsonSchema(t *testing.T, payloadAttrsNotInSchema, schemaAttrsNotInPayload *Set, isSourcemap bool) {
 	require.True(t, len(ps.Schema) > 0, "Schema must be set")
 
+	var payload interface{}
+	var err error
 	// check payload attrs in json schema
-	payload, err := loader.LoadData(ps.FullPayloadPath)
+	if isSourcemap {
+		payload, err = loader.LoadData(ps.FullPayloadPath)
+	} else {
+		payload, err = LoadPayload(ps.FullPayloadPath)
+	}
 	require.NoError(t, err, fmt.Sprintf("File %s not loaded", ps.FullPayloadPath))
 	payloadAttrs := NewSet()
 	flattenJsonKeys(payload, "", payloadAttrs)
@@ -250,13 +267,9 @@ func (ps *ProcessorSetup) changePayload(
 	changeFn func(interface{}, string, interface{}) interface{},
 	validateFn func(string) (bool, []string),
 ) {
-	// load payload
-	var payload interface{}
-	var err error
-	payload, err = loader.LoadData(ps.FullPayloadPath)
-	require.NoError(t, err)
 
-	err = ps.Proc.Validate(payload.(map[string]interface{}))
+	payload := runtime.DeepCopyJSONValue(ps.SamplePayload)
+	_, err := ps.Decoder.Decode(payload, time.Now(), metadata.Metadata{})
 	assert.NoError(t, err, "vanilla payload did not validate")
 
 	// prepare payload according to conditions:
@@ -286,10 +299,10 @@ func (ps *ProcessorSetup) changePayload(
 	}()
 
 	// run actual validation
-	err = ps.Proc.Validate(payload.(map[string]interface{}))
+	_, err = ps.Decoder.Decode(payload, time.Now(), metadata.Metadata{})
 	if shouldValidate, errMsgs := validateFn(key); shouldValidate {
 		wantLog = !assert.NoError(t, err, fmt.Sprintf("Expected <%v> for key <%s> to be valid", val, key))
-		_, err = ps.Proc.Decode(payload.(map[string]interface{}), nil)
+		_, err = ps.Decoder.Decode(payload, time.Now(), metadata.Metadata{})
 		assert.NoError(t, err)
 	} else {
 		if assert.Error(t, err, fmt.Sprintf(`Expected error for key <%v>, but received no error.`, key)) {
@@ -426,4 +439,46 @@ func flattenJsonKeys(data interface{}, prefix string, flattened *Set) {
 			flattenJsonKeys(v, prefix, flattened)
 		}
 	}
+}
+
+const lrSize = 100 * 1024
+
+func getReader(path string) (*decoder.NDJSONStreamReader, error) {
+	reader, err := loader.LoadDataAsStream(path)
+	if err != nil {
+		return nil, err
+	}
+	lr := decoder.NewLineReader(bufio.NewReaderSize(reader, lrSize), lrSize)
+	return decoder.NewNDJSONStreamReader(lr), nil
+}
+
+func readEvents(reader *decoder.NDJSONStreamReader) ([]interface{}, error) {
+	var (
+		err    error
+		e      map[string]interface{}
+		events []interface{}
+	)
+
+	for err != io.EOF {
+		e, err = reader.Read()
+		if err != nil && err != io.EOF {
+			return events, err
+		}
+		if e != nil {
+			events = append(events, e)
+		}
+	}
+	return events, nil
+}
+
+func LoadPayload(path string) (interface{}, error) {
+	ndjson, err := getReader(path)
+	if err != nil {
+		return nil, err
+	}
+
+	// read and discard metadata
+	ndjson.Read()
+
+	return readEvents(ndjson)
 }

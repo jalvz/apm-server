@@ -22,6 +22,7 @@ import (
 	"compress/gzip"
 	"compress/zlib"
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -29,7 +30,6 @@ import (
 
 	"github.com/elastic/apm-server/beater/api/ratelimit"
 
-	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -182,9 +182,7 @@ func (tc *testcaseIntakeHandler) setup(t *testing.T) {
 	}
 	if tc.processor == nil {
 		cfg := config.DefaultConfig("7.0.0")
-		tc.processor = &stream.Processor{
-			MaxEventSize: cfg.MaxEventSize,
-		}
+		tc.processor = stream.BackendProcessor(false, cfg.MaxEventSize)
 	}
 	if tc.reporter == nil {
 		tc.reporter = beatertest.NilReporter

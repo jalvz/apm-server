@@ -20,9 +20,6 @@ package api
 import (
 	"expvar"
 	"net/http"
-	"regexp"
-
-	"github.com/elastic/apm-server/model/transformer"
 
 	"github.com/elastic/beats/libbeat/monitoring"
 
@@ -119,53 +116,25 @@ func NewMux(beaterConfig *config.Config, report publish.Reporter) (*http.ServeMu
 }
 
 func profileHandler(cfg *config.Config, builder *authorization.Builder, reporter publish.Reporter) (request.Handler, error) {
-	h := profile.Handler(systemMetadataDecoder(cfg, nil), reporter)
+	h := profile.Handler(decoder.DecodeSystemData(cfg.AugmentEnabled), reporter)
 	authHandler := builder.ForPrivilege(authorization.PrivilegeEventWrite.Action)
 	return middleware.Wrap(h, backendMiddleware(cfg, authHandler, profile.MonitoringMap)...)
 }
 
 func backendIntakeHandler(cfg *config.Config, builder *authorization.Builder, reporter publish.Reporter) (request.Handler, error) {
-	transformer := &transformer.Transformer{
-		Experimental: cfg.Mode == config.ModeExperimental,
-	}
-	h := intake.Handler(systemMetadataDecoder(cfg, nil),
-		&stream.Processor{
-			Decoders: map[string]stream.EventDecoder{
-				"transaction": stream.DecoderFunc(transformer.DecodeTransaction),
-				"span":        stream.DecoderFunc(transformer.DecodeSpan),
-				"error":       stream.DecoderFunc(transformer.DecodeError),
-				"metricset":   stream.DecoderFunc(transformer.DecodeMetricset),
-			},
-			MaxEventSize: cfg.MaxEventSize,
-		},
+	h := intake.Handler(decoder.DecodeSystemData(cfg.AugmentEnabled),
+		stream.BackendProcessor(cfg.Mode == config.ModeExperimental, cfg.MaxEventSize),
 		reporter)
 	authHandler := builder.ForPrivilege(authorization.PrivilegeEventWrite.Action)
 	return middleware.Wrap(h, backendMiddleware(cfg, authHandler, intake.MonitoringMap)...)
 }
 
 func rumIntakeHandler(cfg *config.Config, _ *authorization.Builder, reporter publish.Reporter) (request.Handler, error) {
-	sourcemapStore, err := cfg.RumConfig.MemoizedSourcemapStore()
+	processor, err := stream.RUMProcessor(cfg.Mode == config.ModeExperimental, cfg.MaxEventSize, cfg.RumConfig)
 	if err != nil {
 		return nil, err
 	}
-	transformer := &transformer.Transformer{
-		Experimental:        cfg.Mode == config.ModeExperimental,
-		SourcemapStore:      sourcemapStore,
-		LibraryPattern:      regexp.MustCompile(cfg.RumConfig.LibraryPattern),
-		ExcludeFromGrouping: regexp.MustCompile(cfg.RumConfig.ExcludeFromGrouping),
-	}
-	h := intake.Handler(userMetaDataDecoder(cfg),
-		&stream.Processor{
-			Decoders: map[string]stream.EventDecoder{
-				"transaction": stream.DecoderFunc(transformer.DecodeTransaction),
-				"span":        stream.DecoderFunc(transformer.DecodeSpan),
-				"error":       stream.DecoderFunc(transformer.DecodeError),
-				// todo not for RUM
-				"metricset": stream.DecoderFunc(transformer.DecodeMetricset),
-			},
-			MaxEventSize: cfg.MaxEventSize,
-		},
-		reporter)
+	h := intake.Handler(decoder.DecodeUserData(cfg.AugmentEnabled), processor, reporter)
 	return middleware.Wrap(h, rumMiddleware(cfg, nil, intake.MonitoringMap)...)
 }
 
@@ -174,7 +143,7 @@ func sourcemapHandler(cfg *config.Config, builder *authorization.Builder, report
 	if err != nil {
 		return nil, err
 	}
-	h := sourcemap.Handler(systemMetadataDecoder(cfg, decoder.DecodeSourcemapFormData), sourcemapStore, reporter)
+	h := sourcemap.Handler(decoder.DecodeSourcemapFormData(cfg.AugmentEnabled), sourcemapStore, reporter)
 	authHandler := builder.ForPrivilege(authorization.PrivilegeSourcemapWrite.Action)
 	return middleware.Wrap(h, sourcemapMiddleware(cfg, authHandler)...)
 }
@@ -246,12 +215,4 @@ func sourcemapMiddleware(cfg *config.Config, auth *authorization.Handler) []midd
 func rootMiddleware(_ *config.Config, auth *authorization.Handler) []middleware.Middleware {
 	return append(apmMiddleware(root.MonitoringMap),
 		middleware.AuthorizationMiddleware(auth, false))
-}
-
-func systemMetadataDecoder(beaterConfig *config.Config, d decoder.RequestDecoder) decoder.RequestDecoder {
-	return decoder.DecodeSystemData(d, beaterConfig.AugmentEnabled)
-}
-
-func userMetaDataDecoder(beaterConfig *config.Config) decoder.RequestDecoder {
-	return decoder.DecodeUserData(beaterConfig.AugmentEnabled)
 }

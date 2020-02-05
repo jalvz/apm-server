@@ -32,7 +32,6 @@ import (
 
 	"github.com/elastic/apm-server/model"
 	"github.com/elastic/apm-server/model/metadata"
-	"github.com/elastic/apm-server/tests"
 )
 
 func TestTransactionEventDecodeFailure(t *testing.T) {
@@ -56,8 +55,10 @@ func TestTransactionEventDecode(t *testing.T) {
 	timestampParsed := time.Date(2017, 5, 30, 18, 53, 27, 154*1e6, time.UTC)
 	timestampEpoch := json.Number(fmt.Sprintf("%d", timestampParsed.UnixNano()/1000))
 	traceId, parentId := "0147258369012345abcdef0123456789", "abcdef0123456789"
-	dropped, started, duration := 12, 6, 1.67
+	dropped, started, duration, ageMillis := 12, 6, 1.67, 1577958057123
 	name, userId, email, userIp := "jane", "abc123", "j@d.com", "127.0.0.1"
+	queueName, body := "order", "confirmed"
+
 	url, referer, origUrl := "https://mypage.com", "http:mypage.com", "127.0.0.1"
 	marks := map[string]interface{}{"k": nil}
 	sampled := true
@@ -150,10 +151,10 @@ func TestTransactionEventDecode(t *testing.T) {
 				Timestamp: timestampParsed,
 				SpanCount: SpanCount{Dropped: &dropped, Started: &started},
 				Message: &model.Message{
-					QueueName: tests.StringPtr("order"),
-					Body:      tests.StringPtr("confirmed"),
+					QueueName: &queueName,
+					Body:      &body,
 					Headers:   http.Header{"Internal": []string{"false"}},
-					AgeMillis: tests.IntPtr(1577958057123),
+					AgeMillis: &ageMillis,
 				},
 			},
 		},
@@ -378,6 +379,7 @@ func TestEventsTransformWithMetadata(t *testing.T) {
 
 	request := model.Req{Method: "post", Socket: &model.Socket{}, Headers: http.Header{}}
 	response := model.Resp{Finished: new(bool), Headers: http.Header{"content-type": []string{"text/html"}}}
+	msg := "routeUser"
 	txWithContext := Event{
 		Timestamp: timestamp,
 		User:      &user,
@@ -387,7 +389,7 @@ func TestEventsTransformWithMetadata(t *testing.T) {
 		Url:       &model.Url{Original: &url},
 		Custom:    &model.Custom{"foo": "bar"},
 		Client:    &model.Client{IP: net.ParseIP("198.12.13.1")},
-		Message:   &model.Message{QueueName: tests.StringPtr("routeUser")},
+		Message:   &model.Message{QueueName: &msg},
 	}
 	txWithContextEs := common.MapStr{
 		"user":       common.MapStr{"id": "123", "name": "jane"},

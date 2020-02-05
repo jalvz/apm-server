@@ -50,36 +50,6 @@ var (
 	readerCounter                 = monitoring.NewInt(decoderMetrics, "reader.count")
 )
 
-//type monitoringReader struct {
-//	r io.ReadCloser
-//}
-//
-//func (mr monitoringReader) Read(p []byte) (int, error) {
-//	n, err := mr.r.Read(p)
-//	readerAccumulator.Add(int64(n))
-//	return n, err
-//}
-//
-//func (mr monitoringReader) Close() error {
-//	return mr.r.Close()
-//}
-//
-//func DecodeLimitJSONData(maxSize int64) ReqDecoder {
-//	return func(req *http.Request) (map[string]interface{}, error) {
-//		contentType := req.Header.Get("Content-Type")
-//		if !strings.Contains(contentType, "application/json") {
-//			return nil, fmt.Errorf("invalid content type: %s", req.Header.Get("Content-Type"))
-//		}
-//
-//		reader, err := CompressedRequestReader(req)
-//		if err != nil {
-//			return nil, err
-//		}
-//		reader = http.MaxBytesReader(nil, reader, maxSize)
-//		return DecodeJSONData(monitoringReader{reader})
-//	}
-//}
-
 // CompressedRequestReader returns a reader that will decompress
 // the body according to the supplied Content-Encoding header in the request
 func CompressedRequestReader(req *http.Request) (io.ReadCloser, error) {
@@ -136,42 +106,48 @@ func DecodeJSONData(reader io.Reader) (map[string]interface{}, error) {
 	return v, nil
 }
 
-func DecodeSourcemapFormData(req *http.Request) (map[string]interface{}, error) {
-	contentType := req.Header.Get("Content-Type")
-	if !strings.Contains(contentType, "multipart/form-data") {
-		return nil, fmt.Errorf("invalid content type: %s", req.Header.Get("Content-Type"))
-	}
+func DecodeSourcemapFormData(enabled bool) RequestDecoder {
+	return func(req *http.Request) (map[string]interface{}, error) {
+		contentType := req.Header.Get("Content-Type")
+		if !strings.Contains(contentType, "multipart/form-data") {
+			return nil, fmt.Errorf("invalid content type: %s", req.Header.Get("Content-Type"))
+		}
 
-	file, _, err := req.FormFile("sourcemap")
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
+		file, _, err := req.FormFile("sourcemap")
+		if err != nil {
+			return nil, err
+		}
+		defer file.Close()
 
-	sourcemapBytes, err := ioutil.ReadAll(file)
-	if err != nil {
-		return nil, err
+		sourcemapBytes, err := ioutil.ReadAll(file)
+		if err != nil {
+			return nil, err
+		}
+		payload := map[string]interface{}{
+			"sourcemap":       string(sourcemapBytes),
+			"service_name":    req.FormValue("service_name"),
+			"service_version": req.FormValue("service_version"),
+			"bundle_filepath": utility.CleanUrlPath(req.FormValue("bundle_filepath")),
+		}
+		systemData, err := DecodeSystemData(enabled)(req)
+		if err != nil {
+			return systemData, err
+		}
+		for k, v := range systemData {
+			payload[k] = v
+		}
+		return payload, nil
 	}
-	payload := map[string]interface{}{
-		"sourcemap":       string(sourcemapBytes),
-		"service_name":    req.FormValue("service_name"),
-		"service_version": req.FormValue("service_version"),
-		"bundle_filepath": utility.CleanUrlPath(req.FormValue("bundle_filepath")),
-	}
-
-	return payload, nil
 }
 
 func DecodeUserData(enabled bool) RequestDecoder {
-	if !enabled {
-		return func(*http.Request) (map[string]interface{}, error) { return map[string]interface{}{}, nil }
-	}
-
 	dec := utility.ManualDecoder{}
 	return func(req *http.Request) (map[string]interface{}, error) {
-		m := map[string]interface{}{
-			"user-agent": dec.UserAgentHeader(req.Header),
+		m := map[string]interface{}{}
+		if !enabled {
+			return m, nil
 		}
+		m["user-agent"] = dec.UserAgentHeader(req.Header)
 		if ip := utility.ExtractIP(req); ip != nil {
 			m["ip"] = ip.String()
 		}
@@ -179,33 +155,17 @@ func DecodeUserData(enabled bool) RequestDecoder {
 	}
 }
 
-func DecodeSystemData(decoder RequestDecoder, enabled bool) RequestDecoder {
-	if !enabled {
-		return decoder
-	}
-
+func DecodeSystemData(enabled bool) RequestDecoder {
 	return func(req *http.Request) (map[string]interface{}, error) {
-		v, err := decoder(req)
-		if err != nil {
-			return v, err
+		m := map[string]interface{}{}
+		if !enabled {
+			return m, nil
 		}
 		if ip := utility.ExtractIP(req); ip != nil {
-			utility.InsertInMap(v, "system", map[string]interface{}{
+			utility.InsertInMap(m, "system", map[string]interface{}{
 				"ip": ip.String(),
 			})
 		}
-		return v, nil
+		return m, nil
 	}
 }
-
-//
-//func augmentData(decoder RequestDecoder, key string, augment func(req *http.Request) map[string]interface{}) RequestDecoder {
-//	return func(req *http.Request) (map[string]interface{}, error) {
-//		v, err := decoder(req)
-//		if err != nil {
-//			return v, err
-//		}
-//		utility.InsertInMap(v, key, augment(req))
-//		return v, nil
-//	}
-//}

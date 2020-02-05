@@ -22,8 +22,12 @@ import (
 	"context"
 	"errors"
 	"io"
+	"regexp"
 	"sync"
 	"time"
+
+	"github.com/elastic/apm-server/beater/config"
+	"github.com/elastic/apm-server/model/transformer"
 
 	"golang.org/x/time/rate"
 
@@ -39,6 +43,43 @@ import (
 var (
 	ErrUnrecognizedObject = errors.New("did not recognize object type")
 )
+
+func RUMProcessor(experimental bool, maxEventSize int, cfg *config.RumConfig) (*Processor, error) {
+	sourcemapStore, err := cfg.MemoizedSourcemapStore()
+	if err != nil {
+		return nil, err
+	}
+	transformer := &transformer.Transformer{
+		Experimental:        experimental,
+		SourcemapStore:      sourcemapStore,
+		LibraryPattern:      regexp.MustCompile(cfg.LibraryPattern),
+		ExcludeFromGrouping: regexp.MustCompile(cfg.ExcludeFromGrouping),
+	}
+	return &Processor{
+		Decoders: map[string]EventDecoder{
+			"transaction": DecoderFunc(transformer.DecodeTransaction),
+			"span":        DecoderFunc(transformer.DecodeSpan),
+			"error":       DecoderFunc(transformer.DecodeError),
+			"metricset":   DecoderFunc(transformer.DecodeMetricset),
+		},
+		MaxEventSize: maxEventSize,
+	}, nil
+}
+
+func BackendProcessor(experimental bool, maxEventSize int) *Processor {
+	transformer := transformer.Transformer{
+		Experimental: experimental,
+	}
+	return &Processor{
+		Decoders: map[string]EventDecoder{
+			"transaction": DecoderFunc(transformer.DecodeTransaction),
+			"span":        DecoderFunc(transformer.DecodeSpan),
+			"error":       DecoderFunc(transformer.DecodeError),
+			"metricset":   DecoderFunc(transformer.DecodeMetricset),
+		},
+		MaxEventSize: maxEventSize,
+	}
+}
 
 type StreamReader interface {
 	Read() (map[string]interface{}, error)
@@ -75,9 +116,11 @@ func (s *srErrorWrapper) Read() (map[string]interface{}, error) {
 }
 
 type Processor struct {
-	Decoders     map[string]EventDecoder
-	MaxEventSize int
-	bufferPool   sync.Pool
+	Decoders      map[string]EventDecoder
+	MaxEventSize  int
+	bufferPool    sync.Pool
+	stoppingError error
+	errors        []error
 }
 
 const batchSize = 10
@@ -139,8 +182,9 @@ func handleRawModel(rawModel map[string]interface{}, decoders map[string]EventDe
 }
 
 // readBatch will read up to `batchSize` objects from the ndjson stream
-// it returns a slice of transformables and a bool that indicates if there might be more to read.
-func readBatch(ctx context.Context, ipRateLimiter *rate.Limiter, batchSize int, decoders map[string]EventDecoder, metadata metadata.Metadata, reader StreamReader, response *Result) ([]publish.Transformable, bool) {
+// It returns a slice of transformables and a bool that indicates if there might be more to read.
+// It accumulates errors encountered in the processor itself
+func (p *Processor) readBatch(ctx context.Context, ipRateLimiter *rate.Limiter, metadata metadata.Metadata, reader StreamReader) ([]publish.Transformable, bool) {
 	var (
 		err      error
 		rawModel map[string]interface{}
@@ -153,10 +197,10 @@ func readBatch(ctx context.Context, ipRateLimiter *rate.Limiter, batchSize int, 
 		err = ipRateLimiter.WaitN(ctxT, batchSize)
 		cancel()
 		if err != nil {
-			response.Add(&Error{
+			p.stoppingError = &Error{
 				Type:    RateLimitErrType,
 				Message: "rate limit exceeded",
-			})
+			}
 			return events, true
 		}
 	}
@@ -168,18 +212,18 @@ func readBatch(ctx context.Context, ipRateLimiter *rate.Limiter, batchSize int, 
 		if err != nil && err != io.EOF {
 
 			if e, ok := err.(*Error); ok && (e.Type == InvalidInputErrType || e.Type == InputTooLargeErrType) {
-				response.LimitedAdd(e)
+				p.errors = append(p.errors, e)
 				continue
 			}
 			// return early, we assume we can only recover from a input error types
-			response.Add(err)
+			p.stoppingError = err
 			return events, true
 		}
 
 		if rawModel != nil {
-			evt, err := handleRawModel(rawModel, decoders, requestTime, metadata)
+			evt, err := handleRawModel(rawModel, p.Decoders, requestTime, metadata)
 			if err != nil {
-				response.LimitedAdd(&Error{
+				p.errors = append(p.errors, &Error{
 					Type:     InvalidInputErrType,
 					Message:  err.Error(),
 					Document: string(reader.LatestLine()),
@@ -193,10 +237,22 @@ func readBatch(ctx context.Context, ipRateLimiter *rate.Limiter, batchSize int, 
 	return events, reader.IsEOF()
 }
 
-// HandleStream processes a stream of events
 func (p *Processor) HandleStream(ctx context.Context, ipRateLimiter *rate.Limiter, meta map[string]interface{}, reader io.Reader, report publish.Reporter) *Result {
 	res := &Result{}
+	transformables := p.Process(ctx, ipRateLimiter, meta, reader, report)
+	if p.stoppingError != nil {
+		res.Add(p.stoppingError)
+	}
+	for _, err := range p.errors {
+		res.LimitedAdd(err)
+	}
+	res.AddAccepted(len(transformables))
+	return res
+}
 
+// Process processes a stream of events
+// It returns a list of APM Events conforming the Transformable interface
+func (p *Processor) Process(ctx context.Context, ipRateLimiter *rate.Limiter, meta map[string]interface{}, reader io.Reader, report publish.Reporter) []publish.Transformable {
 	buf, ok := p.bufferPool.Get().(*bufio.Reader)
 	if !ok {
 		buf = bufio.NewReaderSize(reader, p.MaxEventSize)
@@ -217,46 +273,45 @@ func (p *Processor) HandleStream(ctx context.Context, ipRateLimiter *rate.Limite
 	metadata, err := readMetadata(meta, jsonReader)
 	// no point in continuing if we couldn't read the metadata
 	if err != nil {
-		res.Add(err)
-		return res
+		p.stoppingError = err
+		return nil
 	}
 
 	sp, ctx := apm.StartSpan(ctx, "Stream", "Reporter")
 	defer sp.End()
 
+	var transformables []publish.Transformable
 	for {
-		transformables, done := readBatch(ctx, ipRateLimiter, batchSize, p.Decoders, *metadata, jsonReader, res)
-		if transformables != nil {
+		batch, done := p.readBatch(ctx, ipRateLimiter, *metadata, jsonReader)
+		if batch != nil {
 			err := report(ctx, publish.PendingReq{
-				Transformables: transformables,
+				Transformables: batch,
 				Trace:          !sp.Dropped(),
 			})
 
 			if err != nil {
 				switch err {
 				case publish.ErrChannelClosed:
-					res.Add(&Error{
+					p.stoppingError = &Error{
 						Type:    ShuttingDownErrType,
 						Message: "server is shutting down",
-					})
+					}
 				case publish.ErrFull:
-					res.Add(&Error{
+					p.stoppingError = &Error{
 						Type:    QueueFullErrType,
 						Message: err.Error(),
-					})
+					}
 				default:
-					res.Add(err)
+					p.stoppingError = err
 				}
-
-				return res
+				return transformables
 			}
-
-			res.AddAccepted(len(transformables))
+			transformables = append(transformables, batch...)
 		}
 
 		if done {
 			break
 		}
 	}
-	return res
+	return transformables
 }
