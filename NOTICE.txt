@@ -190,6 +190,35 @@ Apache License 2.0
 
 
 --------------------------------------------------------------------
+Dependency: github.com/cespare/xxhash
+Revision: 2372543dd2bbab7a55ce14c54eb357abe23a42f5
+License type (autodetected): MIT
+./vendor/github.com/cespare/xxhash/LICENSE.txt:
+--------------------------------------------------------------------
+Copyright (c) 2016 Caleb Spare
+
+MIT License
+
+Permission is hereby granted, free of charge, to any person obtaining
+a copy of this software and associated documentation files (the
+"Software"), to deal in the Software without restriction, including
+without limitation the rights to use, copy, modify, merge, publish,
+distribute, sublicense, and/or sell copies of the Software, and to
+permit persons to whom the Software is furnished to do so, subject to
+the following conditions:
+
+The above copyright notice and this permission notice shall be
+included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+--------------------------------------------------------------------
 Dependency: github.com/client9/misspell
 Revision: c0b55c8239520f6b5aa15a0207ca8b28027ba49e
 License type (autodetected): MIT
@@ -558,7 +587,7 @@ SOFTWARE.
 --------------------------------------------------------------------
 Dependency: github.com/elastic/beats
 Version: master
-Revision: 3ed9a542ae5414c83e4f5f63c1aab037a1938080
+Revision: 7aa2f7a8d6efcefd85918be6aa2724ad045d8dd7
 License type (autodetected): Apache-2.0
 ./vendor/github.com/elastic/beats/LICENSE.txt:
 --------------------------------------------------------------------
@@ -669,7 +698,7 @@ Apache License 2.0
 
 --------------------------------------------------------------------
 Dependency: github.com/elastic/go-ucfg
-Revision: 0539807037ce820e147797f051ff32b05f4f9288
+Revision: 093a6898c440d2e5e93abf09850068c60428b2cd
 License type (autodetected): Apache-2.0
 ./vendor/github.com/elastic/go-ucfg/LICENSE:
 --------------------------------------------------------------------
@@ -2521,7 +2550,7 @@ THE SOFTWARE IS PROVIDED 'AS IS', WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 --------------------------------------------------------------------
 Dependency: github.com/magefile/mage
-Revision: aedfce64c122eef47009b7f80c9771044753215d
+Revision: 1c36bf78a98209d91af71354deb001cca75e11fc
 License type (autodetected): Apache-2.0
 ./vendor/github.com/magefile/mage/LICENSE:
 --------------------------------------------------------------------
@@ -2737,15 +2766,6 @@ Dependency: github.com/modern-go/reflect2
 Revision: 94122c33edd36123c84d5368cfb2b69df93a0ec8
 License type (autodetected): Apache-2.0
 ./vendor/github.com/modern-go/reflect2/LICENSE:
---------------------------------------------------------------------
-Apache License 2.0
-
-
---------------------------------------------------------------------
-Dependency: github.com/OneOfOne/xxhash
-Revision: 8f0be54a8d5ccf68817143d8c996147ec5cbd795
-License type (autodetected): Apache-2.0
-./vendor/github.com/OneOfOne/xxhash/LICENSE:
 --------------------------------------------------------------------
 Apache License 2.0
 

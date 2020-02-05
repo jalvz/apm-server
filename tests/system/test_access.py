@@ -1,4 +1,6 @@
-from apmserver import ServerBaseTest, ServerSetUpBaseTest, ElasticTest
+from apmserver import ServerBaseTest, ElasticTest
+from apmserver import TimeoutError, integration_test
+from helper import wait_until
 
 import base64
 import json
@@ -10,7 +12,6 @@ import subprocess
 
 from nose.tools import raises
 from requests.exceptions import SSLError, ChunkedEncodingError
-from apmserver import TimeoutError, integration_test
 from requests.packages.urllib3.exceptions import SubjectAltNameWarning
 requests.packages.urllib3.disable_warnings(SubjectAltNameWarning)
 
@@ -108,25 +109,12 @@ class BaseAPIKey(ElasticTest):
         requests.delete(self.api_key_url,
                         data=json.dumps({'name': self.api_key_name}),
                         headers=headers(content_type='application/json'))
-        self.wait_until(lambda: self.api_keys_invalidated(), name="delete former api keys")
+        wait_until(lambda: self.api_keys_invalidated(), name="delete former api keys")
         # delete all existing application privileges to ensure they can be created for current user
         for name in self.privileges.keys():
             url = "{}/{}/{}".format(self.privileges_url, self.application, name)
             requests.delete(url)
-            self.wait_until(lambda: requests.get(url).status_code == 404)
-
-        # call create privileges and ensure they are created for the user
-        payload = {self.application: {}}
-        for name, action in self.privileges.items():
-            payload[self.application][name] = {"actions": [action]}
-        resp = requests.put(self.privileges_url,
-                            data=json.dumps(payload),
-                            headers=headers(content_type=content_type))
-        assert resp.status_code == 200, resp.status_code
-        apm_privileges = resp.json()[self.application]
-        for name in self.privileges.keys():
-            assert name in apm_privileges, name
-            assert apm_privileges[name]['created'], apm_privileges
+            wait_until(lambda: requests.get(url).status_code == 404)
 
         super(BaseAPIKey, self).setUp()
 
@@ -159,27 +147,28 @@ class BaseAPIKey(ElasticTest):
                              headers=headers(content_type='application/json'))
         assert resp.status_code == 200, resp.status_code
         id = resp.json()["id"]
-        self.wait_until(lambda: self.api_key_exists(id), name="create api key")
-        return "ApiKey {}".format(base64.b64encode("{}:{}".format(id, resp.json()["api_key"])))
+        wait_until(lambda: self.api_key_exists(id), name="create api key")
+        return base64.b64encode("{}:{}".format(id, resp.json()["api_key"]))
+
+    def create_api_key_header(self, privileges, resources, application="apm"):
+        return "ApiKey {}".format(self.create_api_key(privileges, resources, application=application))
 
 
 @integration_test
 class TestAPIKeyCache(BaseAPIKey):
     def config(self):
         cfg = super(TestAPIKeyCache, self).config()
-        cfg.update({"api_key_enabled": True, "api_key_limit": 1})
+        cfg.update({"api_key_enabled": True, "api_key_limit": 5})
         return cfg
 
     def test_cache_full(self):
         """
         Test that authorized API Key is not accepted when cache is full
-        api_key.limit: number of unique API Keys per minute
-        cache expires every 5 minutes
-        => cache size is api_key_limit*5
+        api_key.limit: number of unique API Keys per minute => cache size
         """
 
-        key1 = self.create_api_key([self.privilege_event], self.resource_any)
-        key2 = self.create_api_key([self.privilege_event], self.resource_any)
+        key1 = self.create_api_key_header([self.privilege_event], self.resource_any)
+        key2 = self.create_api_key_header([self.privilege_event], self.resource_any)
 
         def assert_intake(api_key, authorized):
             resp = requests.post(self.intake_url, data=self.get_event_payload(), headers=headers(api_key))
@@ -211,7 +200,7 @@ class TestAPIKeyWithInvalidESConfig(BaseAPIKey):
         """
         API Key cannot be verified when invalid Elasticsearch instance configured
         """
-        key = self.create_api_key([self.privilege_event], self.resource_any)
+        key = self.create_api_key_header([self.privilege_event], self.resource_any)
         resp = requests.post(self.intake_url, data=self.get_event_payload(), headers=headers(key))
         assert resp.status_code == 401,  "token: {}, status_code: {}".format(key, resp.status_code)
 
@@ -227,7 +216,7 @@ class TestAPIKeyWithESConfig(BaseAPIKey):
         """
         Use dedicated Elasticsearch configuration for API Key validation
         """
-        key = self.create_api_key([self.privilege_event], self.resource_any)
+        key = self.create_api_key_header([self.privilege_event], self.resource_any)
         resp = requests.post(self.intake_url, data=self.get_event_payload(), headers=headers(key))
         assert resp.status_code == 202,  "token: {}, status_code: {}".format(key, resp.status_code)
 
@@ -238,19 +227,21 @@ class TestAccessWithAuthorization(BaseAPIKey):
     def setUp(self):
         super(TestAccessWithAuthorization, self).setUp()
 
-        self.api_key_privileges_all_resource_any = self.create_api_key(self.privileges_all, self.resource_any)
-        self.api_key_privileges_all_resource_backend = self.create_api_key(self.privileges_all, self.resource_backend)
-        self.api_key_privilege_any_resource_any = self.create_api_key(self.privilege_any, self.resource_any)
-        self.api_key_privilege_any_resource_backend = self.create_api_key(self.privilege_any, self.resource_backend)
+        self.api_key_privileges_all_resource_any = self.create_api_key_header(self.privileges_all, self.resource_any)
+        self.api_key_privileges_all_resource_backend = self.create_api_key_header(
+            self.privileges_all, self.resource_backend)
+        self.api_key_privilege_any_resource_any = self.create_api_key_header(self.privilege_any, self.resource_any)
+        self.api_key_privilege_any_resource_backend = self.create_api_key_header(
+            self.privilege_any, self.resource_backend)
 
-        self.api_key_privilege_event = self.create_api_key([self.privilege_event], self.resource_any)
-        self.api_key_privilege_config = self.create_api_key([self.privilege_agent_config], self.resource_any)
-        self.api_key_privilege_sourcemap = self.create_api_key([self.privilege_sourcemap], self.resource_any)
+        self.api_key_privilege_event = self.create_api_key_header([self.privilege_event], self.resource_any)
+        self.api_key_privilege_config = self.create_api_key_header([self.privilege_agent_config], self.resource_any)
+        self.api_key_privilege_sourcemap = self.create_api_key_header([self.privilege_sourcemap], self.resource_any)
 
-        self.api_key_invalid_application = self.create_api_key(
+        self.api_key_invalid_application = self.create_api_key_header(
             self.privileges_all, self.resource_any, application="foo")
-        self.api_key_invalid_privilege = self.create_api_key(["foo"], self.resource_any)
-        self.api_key_invalid_resource = self.create_api_key(self.privileges_all, "foo")
+        self.api_key_invalid_privilege = self.create_api_key_header(["foo"], self.resource_any)
+        self.api_key_invalid_resource = self.create_api_key_header(self.privileges_all, "foo")
 
         self.authorized_keys = ["Bearer 1234",
                                 self.api_key_privileges_all_resource_any, self.api_key_privileges_all_resource_backend,
@@ -364,7 +355,7 @@ class TestAccessWithAuthorization(BaseAPIKey):
 
 
 @integration_test
-class TestSecureServerBaseTest(ServerSetUpBaseTest):
+class TestSecureServerBaseTest(ServerBaseTest):
     @classmethod
     def setUpClass(cls):
         # According to https://docs.python.org/2/library/unittest.html#setupclass-and-teardownclass setUp and tearDown
@@ -399,30 +390,26 @@ class TestSecureServerBaseTest(ServerSetUpBaseTest):
         self.server_cert = os.path.join(self.cert_path, "server.crt.pem")
         self.server_key = os.path.join(self.cert_path, "server.key.pem")
         self.password = "foobar"
+        self.host = "localhost"
+        self.port = 8200
         super(TestSecureServerBaseTest, self).setUp()
 
-    def tearDown(self):
-        super(TestSecureServerBaseTest, self).tearDown()
+    def stop_proc(self):
         self.apmserver_proc.kill_and_wait()
-
-    def config_overrides(self):
-        cfg = {
-            "ssl_enabled": "true",
-            "ssl_certificate": self.server_cert,
-            "ssl_key": self.server_key,
-            "ssl_key_passphrase": self.password
-        }
-        cfg.update(self.ssl_overrides())
-        return cfg
 
     def ssl_overrides(self):
         return {}
 
     def config(self):
         cfg = super(TestSecureServerBaseTest, self).config()
-        cfg.update(self.config_overrides())
-        self.host = "localhost"
-        self.port = 8200
+        overrides = {
+            "ssl_enabled": "true",
+            "ssl_certificate": self.server_cert,
+            "ssl_key": self.server_key,
+            "ssl_key_passphrase": self.password
+        }
+        cfg.update(overrides)
+        cfg.update(self.ssl_overrides())
         return cfg
 
     def send_http_request(self, cert=None, verify=False, protocol='https'):
