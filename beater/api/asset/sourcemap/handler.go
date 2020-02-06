@@ -38,7 +38,7 @@ var (
 )
 
 // Handler returns a request.Handler for managing asset requests.
-func Handler(dec decoder.RequestDecoder, sourcemapStore *sourcemap2.Store, report publish.Reporter) request.Handler {
+func Handler(dec decoder.ReqDecoder, sourcemapStore *sourcemap2.Store, report publish.Reporter) request.Handler {
 	return func(c *request.Context) {
 		if c.Request.Method != "POST" {
 			c.Result.SetDefault(request.IDResponseErrorsMethodNotAllowed)

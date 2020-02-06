@@ -222,7 +222,7 @@ type testcaseIntakeHandler struct {
 	c         *request.Context
 	w         *httptest.ResponseRecorder
 	r         *http.Request
-	dec       decoder.RequestDecoder
+	dec       decoder.ReqDecoder
 	rateLimit *ratelimit.Store
 	reporter  func(t *testing.T) publish.Reporter
 	reports   int

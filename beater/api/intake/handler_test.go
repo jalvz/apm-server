@@ -166,7 +166,7 @@ type testcaseIntakeHandler struct {
 	c         *request.Context
 	w         *httptest.ResponseRecorder
 	r         *http.Request
-	dec       decoder.RequestDecoder
+	dec       decoder.ReqDecoder
 	processor *stream.Processor
 	rateLimit *ratelimit.Store
 	reporter  func(ctx context.Context, p publish.PendingReq) error

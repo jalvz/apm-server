@@ -106,7 +106,7 @@ func TestAssetHandler(t *testing.T) {
 type testcaseT struct {
 	w        *httptest.ResponseRecorder
 	r        *http.Request
-	dec      decoder.RequestDecoder
+	dec      decoder.ReqDecoder
 	reporter func(ctx context.Context, p publish.PendingReq) error
 
 	code int

@@ -41,7 +41,7 @@ var (
 )
 
 // Handler returns a request.Handler for managing intake requests for backend and rum events.
-func Handler(dec decoder.RequestDecoder, processor *stream.Processor, report publish.Reporter) request.Handler {
+func Handler(dec decoder.ReqDecoder, processor *stream.Processor, report publish.Reporter) request.Handler {
 	return func(c *request.Context) {
 
 		serr := validateRequest(c.Request)

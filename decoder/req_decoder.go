@@ -35,7 +35,7 @@ import (
 )
 
 type ReqReader func(req *http.Request) (io.ReadCloser, error)
-type RequestDecoder func(req *http.Request) (map[string]interface{}, error)
+type ReqDecoder func(req *http.Request) (map[string]interface{}, error)
 
 var (
 	decoderMetrics                = monitoring.Default.NewRegistry("apm-server.decoder", monitoring.PublishExpvar)
@@ -46,7 +46,6 @@ var (
 	gzipCounter                   = monitoring.NewInt(decoderMetrics, "gzip.count")
 	uncompressedLengthAccumulator = monitoring.NewInt(decoderMetrics, "uncompressed.content-length")
 	uncompressedCounter           = monitoring.NewInt(decoderMetrics, "uncompressed.count")
-	readerAccumulator             = monitoring.NewInt(decoderMetrics, "reader.size")
 	readerCounter                 = monitoring.NewInt(decoderMetrics, "reader.count")
 )
 
@@ -106,7 +105,7 @@ func DecodeJSONData(reader io.Reader) (map[string]interface{}, error) {
 	return v, nil
 }
 
-func DecodeSourcemapFormData(enabled bool) RequestDecoder {
+func DecodeSourcemapFormData(enabled bool) ReqDecoder {
 	return func(req *http.Request) (map[string]interface{}, error) {
 		contentType := req.Header.Get("Content-Type")
 		if !strings.Contains(contentType, "multipart/form-data") {
@@ -140,7 +139,7 @@ func DecodeSourcemapFormData(enabled bool) RequestDecoder {
 	}
 }
 
-func DecodeUserData(enabled bool) RequestDecoder {
+func DecodeUserData(enabled bool) ReqDecoder {
 	dec := utility.ManualDecoder{}
 	return func(req *http.Request) (map[string]interface{}, error) {
 		m := map[string]interface{}{}
@@ -155,7 +154,7 @@ func DecodeUserData(enabled bool) RequestDecoder {
 	}
 }
 
-func DecodeSystemData(enabled bool) RequestDecoder {
+func DecodeSystemData(enabled bool) ReqDecoder {
 	return func(req *http.Request) (map[string]interface{}, error) {
 		m := map[string]interface{}{}
 		if !enabled {
