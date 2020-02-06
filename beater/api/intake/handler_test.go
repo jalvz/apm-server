@@ -96,7 +96,7 @@ func TestIntakeHandler(t *testing.T) {
 			r:    compressedRequest(t, "gzip", true),
 			code: http.StatusAccepted, id: request.IDResponseValidAccepted,
 		},
-		"EventDecoder": {
+		"Decoder": {
 			path: "errors.ndjson",
 			dec: func(*http.Request) (map[string]interface{}, error) {
 				return nil, errors.New("cannot decode `xyz`")

@@ -89,7 +89,7 @@ func Handler(dec decoder.RequestDecoder, report publish.Reporter) request.Handle
 			}
 		}
 
-		var meta *metadata.Metadata
+		var meta metadata.Metadata
 		var totalLimitRemaining int64 = profileContentLengthLimit
 		var profiles []*pprof_profile.Profile
 		mr, err := c.Request.MultipartReader()
@@ -135,12 +135,14 @@ func Handler(dec decoder.RequestDecoder, report publish.Reporter) request.Handle
 						err: errors.Wrap(err, "invalid metadata"),
 					}
 				}
-				meta, err = metadata.DecodeMetadata(raw)
+				decodedMeta, err := metadata.DecodeMetadata(raw)
 				if err != nil {
 					return nil, requestError{
 						id:  request.IDResponseErrorsDecode,
 						err: errors.Wrap(err, "failed to decode metadata"),
 					}
+				} else {
+					meta = *decodedMeta
 				}
 
 			case "profile":
@@ -181,7 +183,7 @@ func Handler(dec decoder.RequestDecoder, report publish.Reporter) request.Handle
 
 		transformables := make([]publish.Transformable, len(profiles))
 		for i, p := range profiles {
-			transformables[i] = profile.PprofProfile{Profile: p, Metadata: *meta}
+			transformables[i] = profile.PprofProfile{Profile: p, Metadata: meta}
 		}
 
 		if err := report(c.Request.Context(), publish.PendingReq{

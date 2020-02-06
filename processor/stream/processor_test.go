@@ -184,7 +184,9 @@ func TestIntegrationRum(t *testing.T) {
 					"ip":         "192.0.0.1",
 				},
 			}
-			p, _ := RUMProcessor(false, 100*1024, &config.RumConfig{})
+			p, _ := RUMProcessor(false, 100*1024, &config.RumConfig{
+				LibraryPattern: "foo", ExcludeFromGrouping: "bar"},
+			)
 			actualResult := p.HandleStream(ctx, nil, reqDecoderMeta, bodyReader, report)
 			assertApproveResult(t, actualResult, test.name)
 		})

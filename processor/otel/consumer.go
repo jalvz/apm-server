@@ -37,10 +37,10 @@ import (
 
 	logs "github.com/elastic/apm-server/log"
 	"github.com/elastic/apm-server/model"
-	apmerror "github.com/elastic/apm-server/model/error"
+	model_error "github.com/elastic/apm-server/model/error"
 	"github.com/elastic/apm-server/model/metadata"
-	"github.com/elastic/apm-server/model/span"
-	"github.com/elastic/apm-server/model/transaction"
+	model_span "github.com/elastic/apm-server/model/span"
+	model_transaction "github.com/elastic/apm-server/model/transaction"
 	"github.com/elastic/apm-server/publish"
 	"github.com/elastic/apm-server/utility"
 )
@@ -61,7 +61,6 @@ type Consumer struct {
 // ConsumeTraceData consumes OpenTelemetry trace data,
 // converting into Elastic APM events and reporting to the Elastic APM schema.
 func (c *Consumer) ConsumeTraceData(ctx context.Context, td consumerdata.TraceData) error {
-	//requestTime := time.Now()
 	transformables := c.convert(td)
 
 	return c.Reporter(ctx, publish.PendingReq{
@@ -77,7 +76,7 @@ func (c *Consumer) convert(td consumerdata.TraceData) []publish.Transformable {
 	if md.System != nil && md.System.DetectedHostname != nil {
 		hostname = *md.System.DetectedHostname
 	}
-
+	now := time.Now()
 	logger := logp.NewLogger(logs.Otel)
 	transformables := make([]publish.Transformable, 0, len(td.Spans))
 	for _, otelSpan := range td.Spans {
@@ -100,7 +99,7 @@ func (c *Consumer) convert(td consumerdata.TraceData) []publish.Transformable {
 		}
 		name := otelSpan.GetName().GetValue()
 		if root || otelSpan.Kind == tracepb.Span_SERVER {
-			tx := transaction.Event{
+			transaction := model_transaction.Event{
 				Id:        spanID,
 				ParentId:  parentID,
 				TraceId:   traceID,
@@ -109,19 +108,20 @@ func (c *Consumer) convert(td consumerdata.TraceData) []publish.Transformable {
 				Name:      &name,
 				Metadata:  md,
 			}
-			parseTransaction(otelSpan, hostname, &tx)
-			if tx.Timestamp.IsZero() {
-				tx.Timestamp = time.Now()
+			parseTransaction(otelSpan, hostname, &transaction)
+			if transaction.Timestamp.IsZero() {
+				transaction.Timestamp = now
 			}
 
-			transformables = append(transformables, &tx)
+			transformables = append(transformables, &transaction)
 			for _, err := range parseErrors(logger, td.SourceFormat, otelSpan) {
-				addTransactionCtxToErr(tx, err)
+				err.Metadata = md
+				addTransactionCtxToErr(transaction, err)
 				transformables = append(transformables, transformableError{err})
 			}
 
 		} else {
-			sp := span.Event{
+			span := model_span.Event{
 				Id:        spanID,
 				ParentId:  *parentID,
 				TraceId:   traceID,
@@ -130,19 +130,20 @@ func (c *Consumer) convert(td consumerdata.TraceData) []publish.Transformable {
 				Name:      name,
 				Metadata:  md,
 			}
-			parseSpan(otelSpan, &sp)
+			parseSpan(otelSpan, &span)
 
 			// TODO remove code dup
-			if sp.Timestamp.IsZero() {
-				sp.Timestamp = time.Now()
+			if span.Timestamp.IsZero() {
+				span.Timestamp = time.Now()
 			}
-			if sp.Timestamp.IsZero() && sp.Start != nil {
-				sp.Timestamp = time.Now().Add(time.Duration(float64(time.Millisecond) * *sp.Start))
+			if span.Timestamp.IsZero() && span.Start != nil {
+				span.Timestamp = time.Now().Add(time.Duration(float64(time.Millisecond) * *span.Start))
 			}
 
-			transformables = append(transformables, transformableSpan{&sp})
+			transformables = append(transformables, transformableSpan{&span})
 			for _, err := range parseErrors(logger, td.SourceFormat, otelSpan) {
-				addSpanCtxToErr(sp, hostname, err)
+				err.Metadata = md
+				addSpanCtxToErr(span, hostname, err)
 				transformables = append(transformables, transformableError{err})
 			}
 		}
@@ -228,7 +229,7 @@ func parseMetadata(td consumerdata.TraceData, md *metadata.Metadata) {
 	}
 }
 
-func parseTransaction(span *tracepb.Span, hostname string, event *transaction.Event) {
+func parseTransaction(span *tracepb.Span, hostname string, event *model_transaction.Event) {
 	labels := make(common.MapStr)
 	var http model.Http
 	var component string
@@ -325,12 +326,12 @@ func parseTransaction(span *tracepb.Span, hostname string, event *transaction.Ev
 	event.Labels = &l
 }
 
-func parseSpan(sp *tracepb.Span, event *span.Event) {
+func parseSpan(sp *tracepb.Span, event *model_span.Event) {
 	labels := make(common.MapStr)
 
-	var http span.HTTP
-	var db span.DB
-	var destination span.Destination
+	var http model_span.HTTP
+	var db model_span.DB
+	var destination model_span.Destination
 	var isDBSpan, isHTTPSpan bool
 	var component string
 	for kDots, v := range sp.Attributes.GetAttributeMap() {
@@ -394,7 +395,7 @@ func parseSpan(sp *tracepb.Span, event *span.Event) {
 		}
 	}
 
-	if destination != (span.Destination{}) {
+	if destination != (model_span.Destination{}) {
 		event.Destination = &destination
 	}
 
@@ -428,11 +429,11 @@ func parseSpan(sp *tracepb.Span, event *span.Event) {
 	event.Labels = labels
 }
 
-func parseErrors(logger *logp.Logger, source string, otelSpan *tracepb.Span) []*apmerror.Event {
-	var errors []*apmerror.Event
+func parseErrors(logger *logp.Logger, source string, otelSpan *tracepb.Span) []*model_error.Event {
+	var errors []*model_error.Event
 	for _, log := range otelSpan.GetTimeEvents().GetTimeEvent() {
 		var isError, hasMinimalInfo bool
-		var err apmerror.Event
+		var err model_error.Event
 		var logMessage, exMessage, exType string
 		for k, v := range log.GetAnnotation().GetAttributes().GetAttributeMap() {
 			if source == sourceFormatJaeger {
@@ -477,10 +478,10 @@ func parseErrors(logger *logp.Logger, source string, otelSpan *tracepb.Span) []*
 		}
 
 		if logMessage != "" {
-			err.Log = &apmerror.Log{Message: logMessage}
+			err.Log = &model_error.Log{Message: logMessage}
 		}
 		if exMessage != "" || exType != "" {
-			err.Exception = &apmerror.Exception{}
+			err.Exception = &model_error.Exception{}
 			if exMessage != "" {
 				err.Exception.Message = &exMessage
 			}
@@ -494,7 +495,7 @@ func parseErrors(logger *logp.Logger, source string, otelSpan *tracepb.Span) []*
 	return errors
 }
 
-func addTransactionCtxToErr(transaction transaction.Event, err *apmerror.Event) {
+func addTransactionCtxToErr(transaction model_transaction.Event, err *model_error.Event) {
 	err.TransactionId = &transaction.Id
 	err.TraceId = &transaction.TraceId
 	err.ParentId = &transaction.Id
@@ -503,7 +504,7 @@ func addTransactionCtxToErr(transaction transaction.Event, err *apmerror.Event) 
 	err.TransactionType = &transaction.Type
 }
 
-func addSpanCtxToErr(span span.Event, hostname string, err *apmerror.Event) {
+func addSpanCtxToErr(span model_span.Event, hostname string, err *model_error.Event) {
 	err.TransactionId = span.TransactionId
 	err.TraceId = &span.TraceId
 	err.ParentId = &span.Id
@@ -620,7 +621,7 @@ func truncate(s string) string {
 }
 
 type transformableError struct {
-	*apmerror.Event
+	*model_error.Event
 }
 
 func (te transformableError) Transform() []beat.Event {
@@ -629,7 +630,7 @@ func (te transformableError) Transform() []beat.Event {
 }
 
 type transformableSpan struct {
-	*span.Event
+	*model_span.Event
 }
 
 func (ts transformableSpan) Transform() []beat.Event {
