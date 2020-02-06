@@ -259,7 +259,7 @@ func TestConsumer_Transaction(t *testing.T) {
 					switch data := transformable.(type) {
 					case *transaction.Event:
 						// hack to test events without timestamp
-						if time.Now().Sub(data.Timestamp) < time.Minute*5 {
+						if time.Since(data.Timestamp) < time.Minute*5 {
 							data.Timestamp = time.Time{}
 						}
 						tr, err := json.Marshal(data)
