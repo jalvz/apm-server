@@ -141,9 +141,8 @@ func Handler(dec decoder.RequestDecoder, report publish.Reporter) request.Handle
 						id:  request.IDResponseErrorsDecode,
 						err: errors.Wrap(err, "failed to decode metadata"),
 					}
-				} else {
-					meta = *decodedMeta
 				}
+				meta = *decodedMeta
 
 			case "profile":
 				params, err := validateContentType(http.Header(part.Header), pprofMediaType)

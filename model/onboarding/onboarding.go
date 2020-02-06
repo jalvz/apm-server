@@ -24,16 +24,16 @@ import (
 	"github.com/elastic/beats/libbeat/common"
 )
 
-type OnboardingDoc struct {
+type Doc struct {
 	ListenAddr string
 }
 
-func (o OnboardingDoc) Transform() []beat.Event {
+func (d Doc) Transform() []beat.Event {
 	return []beat.Event{{
 		Timestamp: time.Now(),
 		Fields: common.MapStr{
 			"processor": common.MapStr{"name": "onboarding", "event": "onboarding"},
-			"observer":  common.MapStr{"listening": o.ListenAddr},
+			"observer":  common.MapStr{"listening": d.ListenAddr},
 		},
 	}}
 }

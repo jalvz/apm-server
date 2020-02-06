@@ -127,7 +127,7 @@ func fetchFields(t *testing.T, path string, blacklisted *Set, isSourcemap bool) 
 	if isSourcemap {
 		data, err := loader.LoadData(path)
 		require.NoError(t, err)
-		transformables, err = sourcemap.Processor.Decode(data, nil)
+		transformables, err = sourcemap.SourcemapProcessor.Decode(data, nil)
 		require.NoError(t, err)
 	} else {
 		buf, err := loader.LoadDataAsStream(path)

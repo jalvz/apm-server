@@ -136,7 +136,7 @@ func TestTransactionPayloadMatchFields(t *testing.T) {
 }
 
 func TestTransactionPayloadMatchJsonSchema(t *testing.T) {
-	transactionProcSetup().PayloadAttrsMatchJsonSchema(t,
+	transactionProcSetup().PayloadAttrsMatchJSONSchema(t,
 		transactionPayloadAttrsNotInJsonSchema(),
 		tests.NewSet("transaction.context.user.email", "transaction.context.experimental"),
 		false)

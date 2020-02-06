@@ -176,7 +176,7 @@ func TestSpanPayloadMatchFields(t *testing.T) {
 }
 
 func TestSpanPayloadMatchJsonSchema(t *testing.T) {
-	spanProcSetup().PayloadAttrsMatchJsonSchema(t,
+	spanProcSetup().PayloadAttrsMatchJSONSchema(t,
 		spanPayloadAttrsNotInJsonSchema(),
 		spanJsonSchemaNotInPayloadAttrs(),
 		false)

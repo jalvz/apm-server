@@ -95,7 +95,7 @@ var (
 // specified in the schema.
 // - schemaAttrsNotInPayload: attributes that are reflected in the json schema but are
 // not part of the payload.
-func (ps *ProcessorSetup) PayloadAttrsMatchJsonSchema(t *testing.T, payloadAttrsNotInSchema, schemaAttrsNotInPayload *Set, isSourcemap bool) {
+func (ps *ProcessorSetup) PayloadAttrsMatchJSONSchema(t *testing.T, payloadAttrsNotInSchema, schemaAttrsNotInPayload *Set, isSourcemap bool) {
 	require.True(t, len(ps.Schema) > 0, "Schema must be set")
 
 	var payload interface{}

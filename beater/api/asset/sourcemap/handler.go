@@ -57,13 +57,13 @@ func Handler(dec decoder.RequestDecoder, sourcemapStore *sourcemap2.Store, repor
 			return
 		}
 
-		if err = sourcemap.Processor.Validate(data); err != nil {
+		if err = sourcemap.SourcemapProcessor.Validate(data); err != nil {
 			c.Result.SetWithError(request.IDResponseErrorsValidate, err)
 			c.Write()
 			return
 		}
 
-		transformables, err := sourcemap.Processor.Decode(data, sourcemapStore)
+		transformables, err := sourcemap.SourcemapProcessor.Decode(data, sourcemapStore)
 		if err != nil {
 			c.Result.SetWithError(request.IDResponseErrorsDecode, err)
 			c.Write()

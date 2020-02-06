@@ -40,11 +40,11 @@ import (
 
 type sourcemapEventDecoder struct{}
 
-func (_ sourcemapEventDecoder) Decode(input interface{}, _ time.Time, _ metadata.Metadata) (publish.Transformable, error) {
-	if err := sourcemap.Processor.Validate(input.(map[string]interface{})); err != nil {
+func (s sourcemapEventDecoder) Decode(input interface{}, _ time.Time, _ metadata.Metadata) (publish.Transformable, error) {
+	if err := sourcemap.SourcemapProcessor.Validate(input.(map[string]interface{})); err != nil {
 		return nil, err
 	}
-	transformables, err := sourcemap.Processor.Decode(input.(map[string]interface{}), nil)
+	transformables, err := sourcemap.SourcemapProcessor.Decode(input.(map[string]interface{}), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -74,7 +74,7 @@ func TestSourcemapProcessorOK(t *testing.T) {
 	}
 
 	for _, info := range data {
-		p := sourcemap.Processor
+		p := sourcemap.SourcemapProcessor
 
 		data, err := loader.LoadData(info.Path)
 		require.NoError(t, err)
@@ -101,7 +101,7 @@ func TestPayloadAttrsMatchFields(t *testing.T) {
 }
 
 func TestPayloadAttrsMatchJsonSchema(t *testing.T) {
-	sourcemapProcSetup().PayloadAttrsMatchJsonSchema(t,
+	sourcemapProcSetup().PayloadAttrsMatchJSONSchema(t,
 		tests.NewSet("sourcemap", "sourcemap.file", "sourcemap.names",
 			"sourcemap.sources", "sourcemap.sourceRoot"), tests.NewSet(), true)
 }

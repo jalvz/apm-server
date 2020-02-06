@@ -32,7 +32,7 @@ import (
 	"github.com/elastic/apm-server/validation"
 )
 
-var Processor = &SourcemapProcessor{
+var SourcemapProcessor = &Processor{
 	PayloadSchema: sm.PayloadSchema(),
 	DecodingCount: monitoring.NewInt(sm.Metrics, "decoding.count"),
 	DecodingError: monitoring.NewInt(sm.Metrics, "decoding.errors"),
@@ -40,7 +40,7 @@ var Processor = &SourcemapProcessor{
 	ValidateError: monitoring.NewInt(sm.Metrics, "validation.errors"),
 }
 
-type SourcemapProcessor struct {
+type Processor struct {
 	PayloadKey    string
 	PayloadSchema *jsonschema.Schema
 	DecodingCount *monitoring.Int
@@ -49,7 +49,7 @@ type SourcemapProcessor struct {
 	ValidateError *monitoring.Int
 }
 
-func (p *SourcemapProcessor) Decode(raw map[string]interface{}, sourcemapStore *sourcemap.Store) ([]publish.Transformable, error) {
+func (p *Processor) Decode(raw map[string]interface{}, sourcemapStore *sourcemap.Store) ([]publish.Transformable, error) {
 	p.DecodingCount.Inc()
 	sourcemap, err := sm.DecodeSourcemap(raw)
 	if err != nil {
@@ -68,7 +68,7 @@ func (ts *transformableSourcemap) Transform() []beat.Event {
 	return ts.sourcemap.Transform(ts.store)
 }
 
-func (p *SourcemapProcessor) Validate(raw map[string]interface{}) error {
+func (p *Processor) Validate(raw map[string]interface{}) error {
 	p.ValidateCount.Inc()
 
 	smap, ok := raw["sourcemap"].(string)

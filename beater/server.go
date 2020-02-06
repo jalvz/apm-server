@@ -104,7 +104,7 @@ func (s server) stop() {
 func notifyListening(ctx context.Context, config *config.Config, reporter publish.Reporter) {
 	logp.NewLogger(logs.Onboarding).Info("Publishing onboarding document")
 	reporter(ctx, publish.PendingReq{
-		Transformables: []publish.Transformable{onboarding.OnboardingDoc{ListenAddr: config.Host}},
+		Transformables: []publish.Transformable{onboarding.Doc{ListenAddr: config.Host}},
 	})
 }
 
