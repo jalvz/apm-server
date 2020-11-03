@@ -127,14 +127,27 @@ func (bt *beater) Run(b *beat.Beat) error {
 		// during startup. This might change when APM Server is included in Fleet
 		reloadOnce.Do(func() {
 			defer close(done)
-			var cfg *config.Config
-			cfg, err = config.NewConfig(ucfg.Config, elasticsearchOutputConfig(b))
+
+			integrationConfig := config.NewIntegrationConfig()
+			err := ucfg.Config.Unpack(integrationConfig)
 			if err != nil {
-				bt.logger.Warn("Could not parse configuration from Elastic Agent ", err)
+				bt.logger.Warn("Could not parse configuration from Elastic Agent", err)
+			}
+
+			if integrationConfig.Streams == nil {
+				return
+			}
+
+			var cfg *config.Config
+			apmServerCommonConfig := integrationConfig.Streams[0].APMServer
+			cfg, err = config.NewConfig(apmServerCommonConfig, elasticsearchOutputConfig(b))
+			if err != nil {
+				bt.logger.Warn("Could not parse APM Server configuration coming from Elastic Agent", err)
 			}
 			bt.config = cfg
-			bt.rawConfig = ucfg.Config
+			bt.rawConfig = apmServerCommonConfig
 			bt.logger.Info("Applying configuration from Elastic Agent... ")
+
 		})
 		return err
 	})
