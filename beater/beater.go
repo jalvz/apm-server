@@ -19,9 +19,8 @@ package beater
 
 import (
 	"context"
+	"github.com/elastic/apm-server/publish"
 	"net"
-	"regexp"
-	"strings"
 	"sync"
 
 	"github.com/pkg/errors"
@@ -38,13 +37,9 @@ import (
 	esoutput "github.com/elastic/beats/v7/libbeat/outputs/elasticsearch"
 
 	"github.com/elastic/apm-server/beater/config"
-	"github.com/elastic/apm-server/elasticsearch"
 	"github.com/elastic/apm-server/ingest/pipeline"
 	logs "github.com/elastic/apm-server/log"
-	"github.com/elastic/apm-server/publish"
 	"github.com/elastic/apm-server/sampling"
-	"github.com/elastic/apm-server/sourcemap"
-	"github.com/elastic/apm-server/transform"
 )
 
 var (
@@ -162,7 +157,7 @@ func (bt *beater) Run(b *beat.Beat) error {
 		runServer = bt.wrapRunServer(runServer)
 	}
 
-	publisher, err := newPublisher(b, bt.config, tracer)
+	publisher, err := publish.NewPublisher(b, bt.config, tracer)
 	if err != nil {
 		return err
 	}
@@ -356,44 +351,4 @@ func runServerWithTracerServer(runServer RunServerFunc, tracerServer *tracerServ
 		})
 		return g.Wait()
 	}
-}
-
-func newPublisher(b *beat.Beat, cfg *config.Config, tracer *apm.Tracer) (*publish.Publisher, error) {
-	transformConfig, err := newTransformConfig(b.Info, cfg)
-	if err != nil {
-		return nil, err
-	}
-	return publish.NewPublisher(b.Publisher, tracer, &publish.PublisherConfig{
-		Info:            b.Info,
-		Pipeline:        cfg.Pipeline,
-		TransformConfig: transformConfig,
-	})
-}
-
-func newTransformConfig(beatInfo beat.Info, cfg *config.Config) (*transform.Config, error) {
-	transformConfig := &transform.Config{
-		RUM: transform.RUMConfig{
-			LibraryPattern:      regexp.MustCompile(cfg.RumConfig.LibraryPattern),
-			ExcludeFromGrouping: regexp.MustCompile(cfg.RumConfig.ExcludeFromGrouping),
-		},
-	}
-
-	if cfg.RumConfig.IsEnabled() && cfg.RumConfig.SourceMapping.IsEnabled() && cfg.RumConfig.SourceMapping.ESConfig != nil {
-		store, err := newSourcemapStore(beatInfo, cfg.RumConfig.SourceMapping)
-		if err != nil {
-			return nil, err
-		}
-		transformConfig.RUM.SourcemapStore = store
-	}
-
-	return transformConfig, nil
-}
-
-func newSourcemapStore(beatInfo beat.Info, cfg *config.SourceMapping) (*sourcemap.Store, error) {
-	esClient, err := elasticsearch.NewClient(cfg.ESConfig)
-	if err != nil {
-		return nil, err
-	}
-	index := strings.ReplaceAll(cfg.IndexPattern, "%{[observer.version]}", beatInfo.Version)
-	return sourcemap.NewStore(esClient, index, cfg.Cache.Expiration)
 }

@@ -19,7 +19,12 @@ package publish
 
 import (
 	"context"
+	"github.com/elastic/apm-server/beater/config"
+	"github.com/elastic/apm-server/elasticsearch"
+	"github.com/elastic/apm-server/sourcemap"
+	"regexp"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 
@@ -57,20 +62,6 @@ type PendingReq struct {
 	Trace          bool
 }
 
-// PublisherConfig is a struct holding configuration information for the publisher.
-type PublisherConfig struct {
-	Info            beat.Info
-	Pipeline        string
-	TransformConfig *transform.Config
-}
-
-func (cfg *PublisherConfig) Validate() error {
-	if cfg.TransformConfig == nil {
-		return errors.New("TransfromConfig unspecified")
-	}
-	return nil
-}
-
 var (
 	ErrFull          = errors.New("queue is full")
 	ErrChannelClosed = errors.New("can't send batch, publisher is being stopped")
@@ -79,20 +70,17 @@ var (
 // newPublisher creates a new publisher instance.
 //MaxCPU new go-routines are started for forwarding events to libbeat.
 //Stop must be called to close the beat.Client and free resources.
-func NewPublisher(pipeline beat.Pipeline, tracer *apm.Tracer, cfg *PublisherConfig) (*Publisher, error) {
-	if err := cfg.Validate(); err != nil {
-		return nil, errors.Wrap(err, "invalid config")
-	}
+func NewPublisher(b *beat.Beat, cfg *config.Config, tracer *apm.Tracer) (*Publisher, error) {
 
 	processingCfg := beat.ProcessingConfig{
 		Fields: common.MapStr{
 			"observer": common.MapStr{
-				"type":          cfg.Info.Beat,
-				"hostname":      cfg.Info.Hostname,
-				"version":       cfg.Info.Version,
+				"type":          b.Info.Beat,
+				"hostname":      b.Info.Hostname,
+				"version":       b.Info.Version,
 				"version_major": 8,
-				"id":            cfg.Info.ID.String(),
-				"ephemeral_id":  cfg.Info.EphemeralID.String(),
+				"id":            b.Info.ID.String(),
+				"ephemeral_id":  b.Info.EphemeralID.String(),
 			},
 		},
 	}
@@ -100,18 +88,23 @@ func NewPublisher(pipeline beat.Pipeline, tracer *apm.Tracer, cfg *PublisherConf
 		processingCfg.Meta = map[string]interface{}{"pipeline": cfg.Pipeline}
 	}
 
+	transformConfig, err := newTransformConfig(b.Info, cfg)
+	if err != nil {
+		return nil, err
+	}
+
 	p := &Publisher{
 		tracer:          tracer,
 		stopped:         make(chan struct{}),
 		waitPublished:   newWaitPublishedAcker(),
-		transformConfig: cfg.TransformConfig,
+		transformConfig: transformConfig,
 
 		// One request will be actively processed by the
 		// worker, while the other concurrent requests will be buffered in the queue.
 		pendingRequests: make(chan PendingReq, runtime.GOMAXPROCS(0)),
 	}
 
-	client, err := pipeline.ConnectWith(beat.ClientConfig{
+	client, err := b.Publisher.ConnectWith(beat.ClientConfig{
 		PublishMode: beat.GuaranteedSend,
 		Processing:  processingCfg,
 		ACKHandler:  p.waitPublished,
@@ -135,6 +128,34 @@ func NewPublisher(pipeline beat.Pipeline, tracer *apm.Tracer, cfg *PublisherConf
 	}()
 
 	return p, nil
+}
+
+func newTransformConfig(beatInfo beat.Info, cfg *config.Config) (*transform.Config, error) {
+	transformConfig := &transform.Config{
+		RUM: transform.RUMConfig{
+			LibraryPattern:      regexp.MustCompile(cfg.RumConfig.LibraryPattern),
+			ExcludeFromGrouping: regexp.MustCompile(cfg.RumConfig.ExcludeFromGrouping),
+		},
+	}
+
+	if cfg.RumConfig.IsEnabled() && cfg.RumConfig.SourceMapping.IsEnabled() && cfg.RumConfig.SourceMapping.ESConfig != nil {
+		store, err := newSourcemapStore(beatInfo, cfg.RumConfig.SourceMapping)
+		if err != nil {
+			return nil, err
+		}
+		transformConfig.RUM.SourcemapStore = store
+	}
+
+	return transformConfig, nil
+}
+
+func newSourcemapStore(beatInfo beat.Info, cfg *config.SourceMapping) (*sourcemap.Store, error) {
+	esClient, err := elasticsearch.NewClient(cfg.ESConfig)
+	if err != nil {
+		return nil, err
+	}
+	index := strings.ReplaceAll(cfg.IndexPattern, "%{[observer.version]}", beatInfo.Version)
+	return sourcemap.NewStore(esClient, index, cfg.Cache.Expiration)
 }
 
 // Stop closes all channels and waits for the the worker to stop, or for the
